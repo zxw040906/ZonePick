@@ -221,3 +221,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ZonePick local datasets and generated experiment artifacts
+/data/
+/checkpoints/
+/runs/
+
+# Local environment overrides and sensitive configuration
+.env.local
+.env.*.local
+/configs/local/
