@@ -25,6 +25,7 @@ ZonePick 是一个基于多麦克风阵列的目标区域语音增强与可视�
 ## 项目文档
 
 - [项目章程](docs/PROJECT_CHARTER.md)
+- [产品需求文档](docs/PRD.md)
 - [技术架构](docs/ARCHITECTURE.md)
 - [开发环境](docs/ENVIRONMENT.md)
 

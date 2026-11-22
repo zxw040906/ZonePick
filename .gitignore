@@ -225,9 +225,12 @@ __marimo__/
 # ZonePick local datasets and generated experiment artifacts
 /data/
 /checkpoints/
+/weights/
 /runs/
 
 # Local environment overrides and sensitive configuration
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.sample
+!.env.template
 /configs/local/
