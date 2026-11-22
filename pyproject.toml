@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zonepick"
+version = "0.1.0"
+description = "Multichannel target-region speech enhancement experiments"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24,<2", "scipy>=1.13,<2", "soundfile>=0.13,<1", "h5py>=3.14,<4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,14 @@
+{
+  "backend": "mcvampire",
+  "sample_rate": 16000,
+  "samples": 32000,
+  "channels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  "reference_channel": 0,
+  "region": {"center": [-0.33, 0.42], "radius": 0.3, "steering_height": 0.65},
+  "sources": [
+    {"file": "dev-clean/1272/128104/1272-128104-0000.flac", "seat": 1, "azimuth": 0, "gain": 1.0},
+    {"file": "dev-clean/1462/170138/1462-170138-0000.flac", "seat": 2, "azimuth": 0, "gain": 1.0}
+  ],
+  "seed": 42,
+  "das": {"n_fft": 512, "sound_speed": 343.0}
+}

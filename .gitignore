@@ -234,3 +234,21 @@ __marimo__/
 !.env.sample
 !.env.template
 /configs/local/
+
+# ZonePick local editor settings, datasets, and generated artifacts
+.vscode/
+.ssh/
+*.key
+*.pem
+/datasets/
+/outputs/
+*.wav
+*.flac
+*.sofa
+*.zip
+*.zip.part
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx

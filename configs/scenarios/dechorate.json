@@ -1,0 +1,15 @@
+{
+  "backend": "dechorate",
+  "sample_rate": 16000,
+  "samples": 32000,
+  "array_id": 1,
+  "channels": [0, 1, 2, 3, 4],
+  "reference_channel": 0,
+  "region": {"center": [2.1, 4.4], "radius": 0.65, "steering_height": 1.4},
+  "sources": [
+    {"file": "dev-clean/1272/128104/1272-128104-0000.flac", "gain": 1.0},
+    {"file": "dev-clean/1462/170138/1462-170138-0000.flac", "gain": 1.0}
+  ],
+  "seed": 42,
+  "das": {"n_fft": 512, "sound_speed": 343.0}
+}
