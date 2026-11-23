@@ -217,8 +217,11 @@ class WebTests(unittest.TestCase):
     def request(self, port, path, payload=None):
         url = f"http://127.0.0.1:{port}{path}"
         if payload is None:
-            with urlopen(url, timeout=5) as response:
-                return response.status, json.loads(response.read())
+            try:
+                with urlopen(url, timeout=5) as response:
+                    return response.status, json.loads(response.read())
+            except HTTPError as error:
+                return error.code, json.loads(error.read())
         data = json.dumps(payload).encode("utf-8")
         request = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
         try:
@@ -290,6 +293,59 @@ class WebTests(unittest.TestCase):
         })
         self.assertEqual(status, 400)
         self.assertIn("半径", body["error"])
+
+    def test_scenarios_and_preview_expose_geometry_and_region(self):
+        handler = build_handler(self.root, datasets={})
+        port = self.start_server(handler, self.root)
+        status, items = self.request(port, "/api/scenarios")
+        self.assertEqual(status, 200)
+        free = next(item for item in items if item["name"] == "free_field")
+        self.assertEqual(len(free["geometry"]["microphones"]), 5)
+        self.assertEqual(len(free["geometry"]["sources"]), 2)
+        self.assertIn("center", free["region"])
+        status, detail = self.request(port, "/api/preview/free_field")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(detail["geometry"]["sources"]), 2)
+        self.assertEqual(detail["region"]["radius"], 0.6)
+
+    def test_compare_routes_list_detail_and_audio(self):
+        run_id = "20260101T000000-abcdefabcdef"
+        directory = self.root / "compare" / run_id  # main.py 实际写入 runs/compare/<id>/
+        directory.mkdir(parents=True)
+        manifest = {
+            "run_id": run_id,
+            "scenario": {"name": "free_field", "backend": "free_field"},
+            "algorithms": ["identity", "das"],
+            "summary": {"identity": {"si_sdr_db": -1.0}, "das": {"si_sdr_db": 0.5}},
+        }
+        (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        for name in ("identity", "das"):
+            (directory / f"{name}.metrics.json").write_text(
+                json.dumps(manifest["summary"][name]), encoding="utf-8")
+            (directory / f"{name}.wav").write_bytes(b"RIFFfake")
+        # 一个没有 manifest 的目录不应出现在对比列表。
+        (self.root / "not_a_run").mkdir()
+
+        handler = build_handler(self.root, datasets={})
+        port = self.start_server(handler, self.root)
+        status, items = self.request(port, "/api/compare")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["run_id"], run_id)
+        self.assertEqual(items[0]["algorithms"], ["identity", "das"])
+
+        status, detail = self.request(port, f"/api/compare/{run_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(detail["scores"]), {"identity", "das"})
+        self.assertEqual(detail["scores"]["das"]["si_sdr_db"], 0.5)
+        self.assertIn("das", detail["audio"])
+        self.assertEqual(detail["audio"]["das"], f"/api/audio/{run_id}/das.wav")
+        with urlopen(f"http://127.0.0.1:{port}{detail['audio']['das']}", timeout=5) as response:
+            self.assertEqual(response.read(), b"RIFFfake")
+
+        # 路径穿越的名字要被拒绝。
+        status, body = self.request(port, "/api/compare/..%2Fsecret")
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":

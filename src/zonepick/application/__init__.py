@@ -91,6 +91,40 @@ def prepare_simulation(config, datasets, speed):
     return mixture, components, microphones, positions, channels
 
 
+def resolve_geometry(config, datasets):
+    """只解析麦克风与声源坐标，供网页预览画区域使用。
+
+    与 prepare_simulation 共用同一位置解析口径，但跳过语音读取、RIR 卷积与混音，
+    因此可在用户画区域之前快速拿到实测场景的真实几何。返回纯 Python 列表，便于
+    JSON 序列化；该几何仅用于可视化，绝不作为算法输入。
+    """
+    backend = config["backend"]
+    inputs = config["sources"]
+    if backend in ("dechorate", "mcvampire"):
+        if "microphones" in config or any("position" in source for source in inputs):
+            raise ValueError("实测场景不能覆盖声源或阵列位置")
+        root = require_dataset(datasets, backend)
+        if backend == "dechorate":
+            channels = select_channels(config, 5)
+            _, microphones, positions = dechorate.load_measurement(root, config["array_id"], channels)
+        else:
+            channels = select_channels(config, 14)
+            _, microphones, positions = mcvampire.load_measurement(root, inputs, channels)
+    elif backend == "free_field":
+        positions = np.asarray([source["position"] for source in inputs], dtype=float)
+        microphones = np.asarray(config["microphones"], dtype=float)
+        channels = select_channels(config, len(microphones))
+        microphones = microphones[channels]
+    elif backend == "recording":
+        microphones = np.asarray(config["microphones"], dtype=float)
+        channels = select_channels(config, len(microphones))
+        microphones = microphones[channels]
+        positions = np.empty((0, 3), dtype=float)
+    else:
+        raise ValueError(f"未知场景模式: {backend}")
+    return np.asarray(microphones, dtype=float).tolist(), np.asarray(positions, dtype=float).tolist()
+
+
 def run(config, datasets, output_root=Path("runs")):
     """执行带参考仿真或仅观测推理，将结果写入独立运行目录。"""
     started = perf_counter()
