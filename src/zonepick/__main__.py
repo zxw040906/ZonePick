@@ -12,13 +12,21 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser("datasets", help="抽查数据目录与实际格式")
     task = commands.add_parser("run", help="运行场景和几何 DAS")
+    web = commands.add_parser("serve", help="启动本地网页可视化")
     for command in (check, task):
         command.add_argument("--datasets", help="数据路径配置，默认读取 configs/local/datasets.yaml")
     task.add_argument("--config", required=True, help="场景 JSON")
+    web.add_argument("--host", default="127.0.0.1", help="监听地址，默认 127.0.0.1")
+    web.add_argument("--port", type=int, default=8000, help="监听端口，默认 8000")
+    web.add_argument("--output-root", help="运行产物根目录，默认 runs/")
     args = parser.parse_args()
     try:
         if args.command == "datasets":
             report = inspect_datasets(dataset_paths(args.datasets))
+        elif args.command == "serve":
+            from zonepick.web import serve
+            serve(args.host, args.port, args.output_root)
+            return
         else:
             config = read_mapping(args.config)
             paths = {} if config["backend"] == "recording" else dataset_paths(args.datasets)

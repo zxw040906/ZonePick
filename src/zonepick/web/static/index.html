@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZonePick · 区域语音增强最小可视化</title>
+<style>
+  :root { color-scheme: light; font-family: -apple-system, "Microsoft YaHei", sans-serif; }
+  body { margin: 0; padding: 24px; background: #f5f6f8; color: #1f2430; }
+  main { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 20px; }
+  .card { background: #fff; border: 1px solid #e3e6ec; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #4b5563; }
+  input, select { padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; min-width: 120px; }
+  input[type=number] { width: 110px; }
+  button { padding: 9px 18px; background: #2563eb; color: #fff; border: 0; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #93b4f5; cursor: wait; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  svg { width: 100%; height: 320px; background: #fafbfc; border: 1px solid #eceff3; border-radius: 8px; }
+  canvas { width: 100%; height: 110px; border: 1px solid #eceff3; border-radius: 6px; background: #fff; }
+  .status { font-size: 13px; min-height: 20px; margin-top: 10px; color: #374151; }
+  .status.error { color: #b91c1c; }
+  audio { width: 100%; margin-top: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border-bottom: 1px solid #eef0f3; padding: 7px 6px; text-align: left; }
+  th { width: 42%; color: #4b5563; font-weight: 500; }
+  .note { color: #6b7280; font-size: 12px; line-height: 1.6; margin-top: 10px; }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 10px; background: #eef2ff; color: #4338ca; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ZonePick · 区域语音增强</h1>
+  <div class="sub">v0.1-B 最小网页可视化 · 预设场景 / 可改目标区域 / 二维位置图 / 波形与试听 / SI-SDR 指标</div>
+
+  <section class="card">
+    <h2>1. 配置并运行 <span class="tag">常规推理</span></h2>
+    <div class="row">
+      <label>预设场景
+        <select id="scenario"><option value="">加载中…</option></select>
+      </label>
+      <label>圆心 x (m)<input id="cx" type="number" step="0.01" value="0"></label>
+      <label>圆心 y (m)<input id="cy" type="number" step="0.01" value="0"></label>
+      <label>半径 (m)<input id="radius" type="number" step="0.01" min="0.01" value="1"></label>
+      <label>指向高度 (m)<input id="height" type="number" step="0.01" value="1.4"></label>
+      <button id="run">运行场景</button>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="note">提示：圆心（x, y）与指向高度共同决定 DAS 的指向点，算法不会读取真实声源位置。把圆心移到区内/外说话人互换，可观察增强效果变化。</div>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>2. 二维位置示意图 <span id="runTag" class="tag" style="display:none"></span></h2>
+      <svg id="map" viewBox="0 0 480 320" role="img" aria-label="声源、麦克风与目标区域位置"></svg>
+      <div class="note" id="mapNote">红点 = 声源，蓝点 = 麦克风，虚线圆 = 目标区域。实测场景运行后显示数据解析出的真实几何。</div>
+    </section>
+    <section class="card">
+      <h2>3. 实验指标</h2>
+      <table>
+        <tr><th>输入 SI-SDR（未增强）</th><td id="mIn">—</td></tr>
+        <tr><th>输出 SI-SDR（DAS 增强）</th><td id="mOut">—</td></tr>
+        <tr><th>参考信号</th><td id="mRef">—</td></tr>
+        <tr><th>增益</th><td id="mGain">—</td></tr>
+        <tr><th>DAS 处理耗时</th><td id="mTime">—</td></tr>
+      </table>
+      <div class="note">参考 = 参考麦克风处的独立混响目标（非干净干声）。仅带参考仿真有 SI-SDR；录音模式无参考，显示“不可用”。</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>4. 波形与试听</h2>
+    <div class="grid">
+      <div>
+        <div style="font-size:13px;margin-bottom:6px">输入（参考麦克风，未增强）</div>
+        <canvas id="waveIn" width="480" height="110"></canvas>
+        <audio id="audioIn" controls preload="none"></audio>
+      </div>
+      <div>
+        <div style="font-size:13px;margin-bottom:6px">输出（几何 DAS 增强）</div>
+        <canvas id="waveOut" width="480" height="110"></canvas>
+        <audio id="audioOut" controls preload="none"></audio>
+      </div>
+    </div>
+    <div class="note">波形为对应 WAV 的前 4 秒（双通道文件取第一路）。试听需点击播放控件。</div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { scenarios: [], current: null, detail: null };
+
+function setStatus(text, isError = false) {
+  const el = $("status");
+  el.textContent = text;
+  el.className = "status" + (isError ? " error" : "");
+}
+
+async function getJSON(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
+  return data;
+}
+
+async function loadScenarios() {
+  try {
+    state.scenarios = await getJSON("/api/scenarios");
+    const select = $("scenario");
+    select.innerHTML = "";
+    for (const item of state.scenarios) {
+      const option = document.createElement("option");
+      option.value = item.name;
+      option.textContent = `${item.name}（${item.backend}）`;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", applyPreset);
+    applyPreset();
+  } catch (error) {
+    setStatus(`加载预设失败：${error.message}`, true);
+  }
+}
+
+function applyPreset() {
+  const item = state.scenarios.find((s) => s.name === $("scenario").value);
+  if (!item || !item.region) return;
+  $("cx").value = item.region.center[0];
+  $("cy").value = item.region.center[1];
+  $("radius").value = item.region.radius;
+  $("height").value = item.region.steering_height;
+  state.current = item;
+  drawMap(item.geometry, item.region);
+}
+
+function fmt(value, digits = 2) {
+  return typeof value === "number" && isFinite(value) ? value.toFixed(digits) : "—";
+}
+
+function showMetrics(metrics) {
+  $("mIn").textContent = metrics.input_si_sdr_db == null ? "不可用" : `${fmt(metrics.input_si_sdr_db)} dB`;
+  const gain = (metrics.input_si_sdr_db != null && metrics.output_si_sdr_db != null)
+    ? `${fmt(metrics.output_si_sdr_db - metrics.input_si_sdr_db)} dB` : "—";
+  $("mOut").textContent = metrics.output_si_sdr_db == null ? "不可用" : `${fmt(metrics.output_si_sdr_db)} dB`;
+  $("mGain").textContent = gain;
+  $("mRef").textContent = metrics.reference_available ? "参考麦克风处独立混响目标（非干声）" : "无参考（录音模式）";
+  $("mTime").textContent = `${fmt(metrics.processing_seconds, 3)} s`;
+}
+
+function svgEl(tag, attrs, text) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function drawMap(geometry, region) {
+  const svg = $("map");
+  svg.innerHTML = "";
+  const mics = geometry.microphones || [];
+  const sources = geometry.sources || [];
+  const center = region.center || [0, 0];
+  const radius = region.radius || 1;
+  const points = [...mics, ...sources.map((s) => s.position), [center[0] + radius, center[1]]];
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+    minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+  }
+  if (!isFinite(minX)) { minX = -1; maxX = 1; minY = -1; maxY = 1; }
+  const pad = Math.max((maxX - minX) * 0.15, (maxY - minY) * 0.15, 0.2);
+  minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+  const scale = Math.min(440 / (maxX - minX), 280 / (maxY - minY));
+  const ox = (480 - (maxX - minX) * scale) / 2;
+  const oy = (320 - (maxY - minY) * scale) / 2;
+  const px = (x) => ox + (x - minX) * scale;
+  const py = (y) => 320 - oy - (y - minY) * scale;
+
+  svg.appendChild(svgEl("line", { x1: px(minX), y1: py(0), x2: px(maxX), y2: py(0), stroke: "#dfe3ea" }));
+  svg.appendChild(svgEl("line", { x1: px(0), y1: py(minY), x2: px(0), y2: py(maxY), stroke: "#dfe3ea" }));
+  svg.appendChild(svgEl("circle", {
+    cx: px(center[0]), cy: py(center[1]), r: radius * scale,
+    fill: "rgba(37,99,235,0.07)", stroke: "#2563eb", "stroke-width": 1.5, "stroke-dasharray": "5 4",
+  }));
+  for (const [index, m] of mics.entries()) {
+    svg.appendChild(svgEl("circle", { cx: px(m[0]), cy: py(m[1]), r: 5, fill: "#2563eb" }));
+    svg.appendChild(svgEl("text", { x: px(m[0]) + 7, y: py(m[1]) + 4, "font-size": 11, fill: "#1e40af" }, `M${index}`));
+  }
+  for (const s of sources) {
+    svg.appendChild(svgEl("circle", { cx: px(s.position[0]), cy: py(s.position[1]), r: 6, fill: "#dc2626" }));
+    svg.appendChild(svgEl("text", { x: px(s.position[0]) + 8, y: py(s.position[1]) + 4, "font-size": 11, fill: "#b91c1c" }, `S${s.index}`));
+  }
+  if (!mics.length && !sources.length) {
+    svg.appendChild(svgEl("text", { x: 240, y: 160, "text-anchor": "middle", "font-size": 13, fill: "#9ca3af" },
+      "该预设的位置由实测数据决定，运行后显示解析结果"));
+  }
+}
+
+async function drawWaveform(url, canvasId) {
+  const canvas = $(canvasId);
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return;
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+    audioCtx.close();
+    const data = buffer.getChannelData(0);
+    const end = Math.min(data.length, Math.floor(buffer.sampleRate * 4));
+    const columns = canvas.width;
+    const step = Math.max(1, Math.floor((end / columns) / 2));
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x < columns; x++) {
+      const start = Math.floor(x * end / columns);
+      const stop = Math.min(end, start + step * 2);
+      let min = 1, max = -1;
+      for (let i = start; i < stop; i++) {
+        if (data[i] < min) min = data[i];
+        if (data[i] > max) max = data[i];
+      }
+      if (min > max) { min = 0; max = 0; }
+      ctx.moveTo(x + 0.5, canvas.height / 2 - max * canvas.height / 2);
+      ctx.lineTo(x + 0.5, canvas.height / 2 - min * canvas.height / 2);
+    }
+    ctx.stroke();
+  } catch (error) {
+    // 波形只是辅助展示，失败不阻断试听与指标。
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("波形暂不可用", 10, 24);
+  }
+}
+
+async function runScenario() {
+  const button = $("run");
+  button.disabled = true;
+  setStatus("正在运行，请稍候…");
+  try {
+    const payload = {
+      scenario: $("scenario").value,
+      region: {
+        center: [Number($("cx").value), Number($("cy").value)],
+        radius: Number($("radius").value),
+        steering_height: Number($("height").value),
+      },
+    };
+    const result = await getJSON("/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const detail = await getJSON(`/api/runs/${result.run_id}`);
+    state.detail = detail;
+    $("runTag").style.display = "inline-block";
+    $("runTag").textContent = result.run_id;
+    showMetrics(result.metrics);
+    const scenario = detail.scenario || {};
+    const geometry = {
+      microphones: scenario.resolved_microphones || scenario.microphones || [],
+      sources: (scenario.resolved_source_positions || []).map((position, index) => ({ index, position })),
+    };
+    const region = scenario.region || payload.region;
+    drawMap(geometry, region);
+    $("mapNote").textContent = "红点 = 声源，蓝点 = 麦克风，虚线圆 = 目标区域。实测场景的位置取自本次运行的解析结果。";
+    $("audioIn").src = `/api/audio/${result.run_id}/reference_mic.wav`;
+    $("audioOut").src = `/api/audio/${result.run_id}/enhanced.wav`;
+    drawWaveform(`/api/audio/${result.run_id}/reference_mic.wav`, "waveIn");
+    drawWaveform(`/api/audio/${result.run_id}/enhanced.wav`, "waveOut");
+    setStatus(`运行完成：${result.run_id}`);
+  } catch (error) {
+    setStatus(`运行失败：${error.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("run").addEventListener("click", runScenario);
+loadScenarios();
+</script>
+</body>
+</html>

@@ -20,7 +20,7 @@ ZonePick 是一个基于多麦克风阵列的目标区域语音增强与可视�
 
 ## 当前开发状态
 
-v0.1-A 已提供 WSL2 CPU 命令行闭环。可以使用两段真实语音，生成自由场或固定测点 RIR 的多通道混合，按二维圆形区域执行频域 DAS，并保存 WAV、配置和 SI-SDR。支持 dEchorate 固定阵列与 McVAMPIRE 固定口部测点。CAVEMOVE 目前用于数据清点，场景适配留待后续。
+v0.1-A 已提供 WSL2 CPU 命令行闭环，v0.1-B 已提供最小网页可视化。可以使用两段真实语音，生成自由场或固定测点 RIR 的多通道混合，按二维圆形区域执行频域 DAS，并保存 WAV、配置和 SI-SDR。支持 dEchorate 固定阵列与 McVAMPIRE 固定口部测点。网页可运行预设场景、修改区域圆心/半径/指向高度，查看二维位置图、波形、试听和 SI-SDR。CAVEMOVE 目前用于数据清点，场景适配留待后续。
 
 ## 运行 v0.1-A
 
@@ -28,6 +28,7 @@ v0.1-A 已提供 WSL2 CPU 命令行闭环。可以使用两段真实语音，生
 
 ```bash
 conda run -n pytorch env PYTHONPATH=src python -m zonepick datasets
+conda run -n pytorch env PYTHONPATH=src python -m zonepick serve
 conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/scenarios/free_field.json
 conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/scenarios/dechorate.json
 conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/scenarios/mcvampire.json
@@ -35,6 +36,7 @@ conda run -n pytorch env PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
 - 可复制 `configs/datasets.example.yaml` 到 Git 忽略的 `configs/local/datasets.yaml`，按需修改路径。示例使用同级旧仓库和同级 `shared-datasets/`，也可用 `--datasets` 指定配置。
+- `python -m zonepick serve` 默认在 `http://127.0.0.1:8000/` 启动网页，仅用标准库 `http.server`，可用 `--host` / `--port` / `--output-root` 调整。网页直接调用应用层 `run()`，与命令行结果共用同一套配置与产物结构；首版只提供预设场景和区域参数调整，不含频谱与完整场景编辑器。
 - 场景使用 16 kHz，将声源水平投影到闭合圆。带参考模式目前要求恰好一个区内声源。`region.center` 和 `steering_height` 构成 DAS 指向，`channels` 同步选择波形与几何，`reference_channel` 指所选通道内的索引。固定配置使用明确的文件与裁剪位置，种子随配置保存，当前流程无需抽样。
 - 输出位于 `runs/<run_id>/`，包含混合、未增强参考通道、增强音频和独立目标及干扰 WAV，以及 `scenario.json` 与 `metrics.json`。运行记录包含解析后的配置、依赖版本和本地源码版本状态。SI-SDR 以参考麦克风处的独立混响目标为参考，去均值后在同一时间轴比较。自由场采用直接传播与距离衰减，实测 RIR 只用于对应测点。
 - 对已有多通道录音，可在 JSON 中设置 `"backend": "recording"`，并提供 `input_wav`、`sample_rate`、按 WAV 通道排列的 `microphones` 和同样的区域参数。无需数据集或逐源参考，SI-SDR 输出为 `null`。
@@ -61,5 +63,5 @@ conda run -n pytorch env PYTHONPATH=src python -m unittest discover -s tests -v
 
 1. 扩大 v0.1-A 的固定场景验证，确认评价口径和验收条件。
 2. 扩充传统阵列处理基线，随后研究混合方法和纯神经网络区域提取。
-3. 接入网页场景交互、音频试听和结果可视化。
+3. ~~接入网页场景交互、音频试听和结果可视化。~~（v0.1-B 已实现最小版本）
 4. 固定数据划分与评价协议，开展可复现的对照实验和消融分析。
