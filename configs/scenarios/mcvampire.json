@@ -1,4 +1,5 @@
 {
+  "label": "McVAMPIRE · 车内 14 通道",
   "backend": "mcvampire",
   "sample_rate": 16000,
   "samples": 32000,

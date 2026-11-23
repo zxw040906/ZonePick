@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZonePick · 区域语音增强最小可视化</title>
+<style>
+  :root { color-scheme: light; font-family: -apple-system, "Microsoft YaHei", sans-serif; }
+  body { margin: 0; padding: 24px; background: #f5f6f8; color: #1f2430; }
+  main { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 20px; }
+  .card { background: #fff; border: 1px solid #e3e6ec; border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #4b5563; }
+  input, select { padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; min-width: 120px; }
+  input[type=number] { width: 110px; }
+  button { padding: 9px 18px; background: #2563eb; color: #fff; border: 0; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #93b4f5; cursor: wait; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  svg { width: 100%; height: 320px; background: #fafbfc; border: 1px solid #eceff3; border-radius: 8px; }
+  #map { cursor: crosshair; touch-action: none; }
+  #map text { pointer-events: none; }
+  .map-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .map-tools button { padding: 6px 12px; font-size: 12px; }
+  .map-tools button.mode-on { background: #1d4ed8; }
+  .map-tools .hint { font-size: 12px; color: #6b7280; }
+  canvas { width: 100%; height: 110px; border: 1px solid #eceff3; border-radius: 6px; background: #fff; }
+  .status { font-size: 13px; min-height: 20px; margin-top: 10px; color: #374151; }
+  .status.error { color: #b91c1c; }
+  audio { width: 100%; margin-top: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  td, th { border-bottom: 1px solid #eef0f3; padding: 7px 6px; text-align: left; }
+  th { width: 42%; color: #4b5563; font-weight: 500; }
+  .note { color: #6b7280; font-size: 12px; line-height: 1.6; margin-top: 10px; }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 10px; background: #eef2ff; color: #4338ca; }
+  .cmp-table th { width: auto; }
+  .cmp-table td, .cmp-table th { text-align: center; }
+  .cmp-table td:first-child, .cmp-table th:first-child { text-align: left; width: 34%; }
+  .cmp-table tr.best td { background: #ecfdf5; }
+  .cmp-wave { border: 1px solid #eceff3; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .cmp-wave h4 { margin: 0 0 6px; font-size: 13px; color: #374151; }
+  .cmp-wave canvas { height: 84px; }
+  .diag th { width: 30%; }
+  .diag td { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+  .verdict { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f8fafc;
+             border-left: 3px solid #94a3b8; font-size: 13px; line-height: 1.65; color: #334155; }
+  .verdict.warn { background: #fffbeb; border-left-color: #f59e0b; color: #92400e; }
+  .verdict.good { background: #ecfdf5; border-left-color: #10b981; color: #065f46; }
+  .verdict.bad { background: #fef2f2; border-left-color: #ef4444; color: #991b1b; }
+  .cap { font-size: 13px; margin-bottom: 6px; color: #374151; }
+  .view-toggle button { padding: 5px 11px; font-size: 12px; background: #eef2f7; color: #374151; border: 1px solid #d7dce5; }
+  .view-toggle button.mode-on { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+  .azimuth-wrap { font-size: 12px; color: #4b5563; display: none; align-items: center; gap: 8px; }
+  .azimuth-wrap input[type=range] { min-width: 150px; }
+  .custom-box { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px 14px; margin-top: 10px; }
+  .custom-box textarea { width: 100%; min-height: 90px; box-sizing: border-box; font-family: ui-monospace, Consolas, monospace;
+                         font-size: 12px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px; resize: vertical; }
+  .noise-tip { font-size: 12px; color: #b45309; background: #fffbeb; border-left: 3px solid #f59e0b;
+               padding: 7px 10px; border-radius: 6px; margin-top: 8px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ZonePick · 区域语音增强</h1>
+  <div class="sub">v0.1-B 最小网页可视化 · 预设场景 / 可改目标区域 / 二维位置图 / 波形与试听 / SI-SDR 指标</div>
+
+  <section class="card">
+    <h2>1. 配置并运行 <span class="tag">常规推理</span></h2>
+    <div class="row">
+      <label>预设场景
+        <select id="scenario"><option value="">加载中…</option></select>
+      </label>
+      <label>圆心 x (m)<input id="cx" type="number" step="0.01" value="0"></label>
+      <label>圆心 y (m)<input id="cy" type="number" step="0.01" value="0"></label>
+      <label>半径 (m)<input id="radius" type="number" step="0.01" min="0.01" value="1"></label>
+      <label>指向高度 (m)<input id="height" type="number" step="0.01" value="1.4"></label>
+      <button id="run">运行场景</button>
+      <button id="customToggle" style="background:#4b5563">＋ 自定义场景</button>
+    </div>
+    <div class="noise-tip" id="noiseTip"></div>
+    <div class="status" id="status"></div>
+    <div class="note">提示：圆心（x, y）与指向高度共同决定 DAS 的指向点，算法不会读取真实声源位置。把圆心移到区内/外说话人互换，可观察增强效果变化。</div>
+    <div class="custom-box" id="customBox" style="display:none">
+      <div style="font-size:13px;margin-bottom:8px">自定义场景：以选定预设为模板，可修改场景 JSON（仅允许白名单字段）。保存后即可在上方选择并运行。</div>
+      <label>场景名（英文/数字）<input id="customName" type="text" placeholder="例如 my_scene" style="min-width:180px"></label>
+      <label style="margin-top:8px">覆盖配置（JSON，留空则沿用模板）
+        <textarea id="customJson" placeholder='{"label":"我的场景","region":{"center":[2.1,4.4],"radius":0.65,"steering_height":1.4}}'></textarea>
+      </label>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="customSave" type="button">保存自定义场景</button>
+        <button id="customLoad" type="button" style="background:#4b5563">把当前预设填入编辑框</button>
+      </div>
+      <div class="status" id="customStatus"></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>2. 位置预览 · 手动画区域 <span id="runTag" class="tag" style="display:none"></span></h2>
+      <div class="map-tools">
+        <div class="view-toggle" style="display:inline-flex;gap:4px">
+          <button id="view2d" class="mode-on" type="button">二维俯视</button>
+          <button id="view3d" type="button">三维视图</button>
+        </div>
+        <span class="hint">带坐标轴（单位 m）。二维可点选圆心 / 拖拽画圆 / 拖圆周改半径，与数字输入实时同步。</span>
+      </div>
+      <div class="map-tools" id="mapTools2d">
+        <button id="modeCenter" class="mode-on" type="button">① 点选圆心</button>
+        <button id="modeDraw" type="button">② 拖拽画圆</button>
+        <button id="modeRadius" type="button">③ 拖拽改半径</button>
+      </div>
+      <div class="map-tools azimuth-wrap" id="azimuthWrap">
+        <label>旋转视角 <input id="azimuth" type="range" min="0" max="360" value="35"></label>
+        <span class="hint" id="azimuthLabel">35°</span>
+        <span class="hint">可拖动滑块旋转观察三维空间中的阵列、声源与指向点（只读，区域绘制请用二维视图）</span>
+      </div>
+      <svg id="map" viewBox="0 0 480 320" role="img" aria-label="声源、麦克风与目标区域位置，可交互绘制拾音区域"></svg>
+      <div class="note" id="mapNote">红点 = 声源，蓝点 = 麦克风，蓝色虚线圆 = 目标拾音区域。实测场景的几何在加载时由数据集解析（仅用于可视化，不参与推理）。</div>
+    </section>
+    <section class="card">
+      <h2>3. 本次推理诊断</h2>
+      <table class="diag">
+        <tr><th>区域</th><td id="dRegion">—</td></tr>
+        <tr><th>指向点</th><td id="dPoint">—</td></tr>
+        <tr><th>区域成员</th><td id="dMembers">—</td></tr>
+        <tr><th>指向误差</th><td id="dError">—</td></tr>
+        <tr><th>SI-SDR 输入 → 输出</th><td id="dScore">—</td></tr>
+      </table>
+      <div class="verdict" id="dVerdict">运行一次后可看到指向、区域成员与本次增益的因果解释。</div>
+      <div class="note">诊断用的声源位置与参考波形只参与解释和评分，绝不进入算法输入——算法只能看到你画的区域与公开阵列几何。</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>4. 频谱诊断</h2>
+    <div class="grid">
+      <div>
+        <div class="cap">输入（参考麦克风，未增强）— 前 4 秒</div>
+        <canvas id="specIn" width="480" height="150"></canvas>
+        <audio id="audioIn" controls preload="none"></audio>
+      </div>
+      <div>
+        <div class="cap">输出（增强后）— 前 4 秒</div>
+        <canvas id="specOut" width="480" height="150"></canvas>
+        <audio id="audioOut" controls preload="none"></audio>
+      </div>
+    </div>
+    <div class="note">纵轴 0–8 kHz 对数频率，颜色 = 能量（dB）。增强算法的抑制通常表现为某些频带整体变暗；与第 5 节的多算法指标表配合看，能判断“压制了什么”而不只是“分数变了多少”。</div>
+  </section>
+
+  <section class="card">
+    <h2>5. 公平评测对比 <span class="tag">工作台</span></h2>
+    <div class="note" style="margin-top:0">一次准备同一份含噪输入，identity（未增强）与各算法逐样本公平对比；真值仅用于评分，算法看不到声源位置/干净语音。绿色行表示该指标最优。由 <code>python main.py</code> 自动生成记录。</div>
+    <div class="row" style="margin-top:12px">
+      <label>对比记录
+        <select id="cmpRun"><option value="">加载中…</option></select>
+      </label>
+      <button id="cmpRefresh" style="background:#4b5563">刷新列表</button>
+    </div>
+    <div class="status" id="cmpStatus"></div>
+    <div id="cmpScores"></div>
+    <div id="cmpWaves"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = {
+  scenarios: [], current: null, detail: null, compare: [],
+  mode: "center", // center | draw | radius
+  viewMode: "2d", // 2d | 3d
+  azimuth: 35,
+  geometry: { microphones: [], sources: [] },
+  view: null, // 二维像素映射：px(x), py(y), ux(px), uy(py)
+};
+
+function setStatus(text, isError = false) {
+  const el = $("status");
+  el.textContent = text;
+  el.className = "status" + (isError ? " error" : "");
+}
+
+async function getJSON(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
+  return data;
+}
+
+async function loadScenarios() {
+  try {
+    state.scenarios = await getJSON("/api/scenarios");
+    const select = $("scenario");
+    select.innerHTML = "";
+    for (const item of state.scenarios) {
+      const option = document.createElement("option");
+      option.value = item.name;
+      option.textContent = `${item.label || item.name}（${item.name}）`;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", applyPreset);
+    applyPreset();
+  } catch (error) {
+    setStatus(`加载预设失败：${error.message}`, true);
+  }
+}
+
+function applyPreset() {
+  const item = state.scenarios.find((s) => s.name === $("scenario").value);
+  if (!item || !item.region) return;
+  $("cx").value = item.region.center[0];
+  $("cy").value = item.region.center[1];
+  $("radius").value = item.region.radius;
+  $("height").value = item.region.steering_height;
+  state.current = item;
+  state.geometry = item.geometry || { microphones: [], sources: [] };
+  drawMap(state.geometry, readRegion());
+  const reason = (item.geometry || {}).reason;
+  $("mapNote").textContent = reason
+    ? `该预设的几何暂时无法解析（${reason}）。可先在坐标系中画出区域；提供数据集后重新加载即可看到真实声源/麦克风位置。`
+    : "红点 = 声源，蓝点 = 麦克风，蓝色虚线圆 = 目标拾音区域。带坐标轴，单位米；可点选/拖拽区域并与数字输入联动。";
+  const hint = item.noise_hint;
+  const tip = $("noiseTip");
+  if (hint && hint.enabled) {
+    tip.style.display = "block";
+    const kinds = (hint.kinds || []).map((k) => ({ urban: "城市环境音", driving: "车内行驶噪声" })[k] || k).join(" + ");
+    tip.textContent = `该场景自带真实噪声：${kinds || "默认"}，SNR ${(hint.snr_db || []).join("–") || "?"} dB。网页单场景运行不注入噪声；运行 python main.py 的公平对比会自动按此配置注入。`;
+  } else {
+    tip.style.display = "none";
+  }
+}
+
+function readRegion() {
+  return {
+    center: [Number($("cx").value), Number($("cy").value)],
+    radius: Number($("radius").value),
+    steering_height: Number($("height").value),
+  };
+}
+
+function syncInputs(region) {
+  $("cx").value = Number(region.center[0].toFixed(3));
+  $("cy").value = Number(region.center[1].toFixed(3));
+  $("radius").value = Number(region.radius.toFixed(3));
+}
+
+function fmt(value, digits = 2) {
+  return typeof value === "number" && isFinite(value) ? value.toFixed(digits) : "—";
+}
+
+function distance(a, b) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], (a[2] || 0) - (b[2] || 0));
+}
+
+// 第 3 节：把本次运行的几何与得分放在一起，解释"为什么是这个数"。
+function showDiagnostics(scenario, metrics, region) {
+  const mics = scenario.resolved_microphones || scenario.microphones || [];
+  const sources = (scenario.resolved_source_positions || []).map((p, i) => ({ index: i, position: p }));
+  const center = region.center || [0, 0];
+  const height = region.steering_height == null ? 0 : region.steering_height;
+  const steering = [center[0], center[1], height];
+
+  $("dRegion").textContent =
+    `圆心 (${fmt(center[0])}, ${fmt(center[1])}) · r = ${fmt(region.radius)} m · 高度 ${fmt(height)} m`;
+
+  if (!mics.length) {
+    $("dPoint").textContent = "录音模式：未解析阵列几何";
+    $("dMembers").textContent = "无参考（录音输入不参与区域判定）";
+    $("dError").textContent = "—";
+  } else {
+    $("dPoint").textContent = `(${fmt(steering[0])}, ${fmt(steering[1])}, ${fmt(steering[2])}) · 阵列 ${mics.length} 通道`;
+    if (!sources.length) {
+      $("dMembers").textContent = "该场景未暴露声源坐标";
+      $("dError").textContent = "—";
+    } else {
+      const inside = sources.filter((s) => Math.hypot(s.position[0] - center[0], s.position[1] - center[1]) <= region.radius + 1e-9);
+      const outside = sources.filter((s) => !inside.includes(s));
+      const label = (list) => list.map((s) => `S${s.index} (${fmt(s.position[0])}, ${fmt(s.position[1])})`).join("，");
+      $("dMembers").textContent =
+        (inside.length ? `区内 ${label(inside)}` : "区内无声源") +
+        (outside.length ? `；区外 ${label(outside)}` : "");
+      if (inside.length === 1) {
+        const d = distance(inside[0].position, steering);
+        const horizontal = Math.hypot(inside[0].position[0] - center[0], inside[0].position[1] - center[1]);
+        $("dError").textContent =
+          `指向点 → 区内声源 ${fmt(d, 3)} m（水平 ${fmt(horizontal, 3)} m，高度差 ${fmt(inside[0].position[2] - height, 3)} m）`;
+      } else {
+        $("dError").textContent = inside.length === 0 ? "指向点落在所有声源之外" : "区内多于一个声源，指向有歧义";
+      }
+    }
+  }
+
+  const input = metrics.input_si_sdr_db;
+  const output = metrics.output_si_sdr_db;
+  $("dScore").textContent = (input == null || output == null)
+    ? "不可用（无参考）"
+    : `${fmt(input)} → ${fmt(output)} dB（${output - input >= 0 ? "+" : ""}${fmt(output - input)} dB）· ${fmt(metrics.processing_seconds, 3)} s`;
+
+  const verdict = $("dVerdict");
+  verdict.className = "verdict";
+  if (input == null || output == null) {
+    verdict.textContent = "录音模式没有参考波形，只能试听与看频谱，无法算 SI-SDR。";
+    return;
+  }
+  const gain = output - input;
+  const parts = [];
+  if (gain >= 1) {
+    verdict.className = "verdict good";
+    parts.push(`本次增强有效：相对未处理提升 ${fmt(gain)} dB。`);
+  } else if (gain >= -0.5) {
+    verdict.className = "verdict warn";
+    parts.push(`本次几乎没有增益（${fmt(gain)} dB），说明指向与真实声源对齐程度不足。`);
+  } else {
+    verdict.className = "verdict bad";
+    parts.push(`本次增强反而变差 ${fmt(gain)} dB —— 这是有意义的结果，不是故障。`);
+  }
+  if (sources.length && region.radius != null) {
+    const inside = sources.filter((s) => Math.hypot(s.position[0] - center[0], s.position[1] - center[1]) <= region.radius + 1e-9);
+    if (inside.length === 0) {
+      parts.push("圆心没有落在任何声源上，算法按你给的区域指向，被增强的对象不是参考目标，因此分数下降。");
+    } else if (inside.length > 1) {
+      parts.push("区内有多个声源，带参考模式要求恰好一个，评分口径本身有歧义。");
+    } else {
+      const d = distance(inside[0].position, steering);
+      if (d > 0.3) parts.push(`指向点离区内声源 ${fmt(d, 2)} m，导向矢量与真实传播路径失配，这是增益被吃掉的主因。`);
+      else parts.push(`指向点离区内声源仅 ${fmt(d, 2)} m，几何对齐良好；剩余损失主要来自混响与噪声协方差估计。`);
+    }
+  }
+  verdict.textContent = parts.join(" ");
+}
+
+function svgEl(tag, attrs, text) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function niceStep(span) {
+  const raw = span / 5;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw || 1e-9)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (raw <= m * mag) return m * mag;
+  return 10 * mag;
+}
+
+function drawMap(geometry, region, preview) {
+  if (state.viewMode === "3d") { drawMap3D(geometry, region, preview); return; }
+  const svg = $("map");
+  svg.innerHTML = "";
+  const mics = geometry.microphones || [];
+  const sources = geometry.sources || [];
+  const r = preview || region;
+  const center = r.center || [0, 0];
+  const radius = r.radius || 1;
+  const points = [...mics, ...sources.map((s) => s.position), [center[0] + radius, center[1]]];
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+    minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+  }
+  if (!isFinite(minX)) { minX = -1; maxX = 1; minY = -1; maxY = 1; }
+  const pad = Math.max((maxX - minX) * 0.15, (maxY - minY) * 0.15, 0.3);
+  minX -= pad; maxX += pad; minY -= pad; maxY += pad;
+  const scale = Math.min(440 / (maxX - minX), 280 / (maxY - minY));
+  const ox = (480 - (maxX - minX) * scale) / 2;
+  const oy = (320 - (maxY - minY) * scale) / 2;
+  const px = (x) => ox + (x - minX) * scale;
+  const py = (y) => 320 - oy - (y - minY) * scale;
+  const ux = (x) => (x - ox) / scale + minX;
+  const uy = (y) => (320 - y - oy) / scale + minY;
+  state.view = { px, py, ux, uy };
+
+  // 网格与坐标轴（世界坐标，单位 m）。
+  const stepX = niceStep(maxX - minX), stepY = niceStep(maxY - minY);
+  for (let x = Math.ceil(minX / stepX) * stepX; x <= maxX; x += stepX) {
+    svg.appendChild(svgEl("line", {
+      x1: px(x), y1: py(minY), x2: px(x), y2: py(maxY),
+      stroke: Math.abs(x) < 1e-9 ? "#9ca3af" : "#eef1f5", "stroke-width": Math.abs(x) < 1e-9 ? 1.2 : 1,
+    }));
+    svg.appendChild(svgEl("text", {
+      x: px(x), y: py(minY) + 14, "text-anchor": "middle", "font-size": 10, fill: "#9ca3af",
+    }, x.toFixed(stepX < 1 ? 1 : 0)));
+  }
+  for (let y = Math.ceil(minY / stepY) * stepY; y <= maxY; y += stepY) {
+    svg.appendChild(svgEl("line", {
+      x1: px(minX), y1: py(y), x2: px(maxX), y2: py(y),
+      stroke: Math.abs(y) < 1e-9 ? "#9ca3af" : "#eef1f5", "stroke-width": Math.abs(y) < 1e-9 ? 1.2 : 1,
+    }));
+    svg.appendChild(svgEl("text", {
+      x: px(minX) + 3, y: py(y) - 3, "font-size": 10, fill: "#9ca3af",
+    }, y.toFixed(stepY < 1 ? 1 : 0)));
+  }
+  svg.appendChild(svgEl("text", { x: 474, y: py(0) - 5, "text-anchor": "end", "font-size": 11, fill: "#6b7280" }, "x (m)"));
+  svg.appendChild(svgEl("text", { x: px(0) + 5, y: 14, "font-size": 11, fill: "#6b7280" }, "y (m)"));
+
+  // 目标区域（预览时为虚线，确定后为实线）。
+  svg.appendChild(svgEl("circle", {
+    cx: px(center[0]), cy: py(center[1]), r: Math.max(0, radius * scale),
+    fill: "rgba(37,99,235,0.07)", stroke: "#2563eb", "stroke-width": 1.5,
+    "stroke-dasharray": preview ? "4 3" : "5 4", opacity: preview ? 0.8 : 1,
+  }));
+  svg.appendChild(svgEl("circle", { cx: px(center[0]), cy: py(center[1]), r: 3, fill: "#2563eb" }));
+  for (const [index, m] of mics.entries()) {
+    svg.appendChild(svgEl("circle", { cx: px(m[0]), cy: py(m[1]), r: 5, fill: "#2563eb" }));
+    svg.appendChild(svgEl("text", { x: px(m[0]) + 7, y: py(m[1]) + 4, "font-size": 11, fill: "#1e40af" }, `M${index}`));
+  }
+  for (const s of sources) {
+    svg.appendChild(svgEl("circle", { cx: px(s.position[0]), cy: py(s.position[1]), r: 6, fill: "#dc2626" }));
+    svg.appendChild(svgEl("text", { x: px(s.position[0]) + 8, y: py(s.position[1]) + 4, "font-size": 11, fill: "#b91c1c" }, `S${s.index}`));
+  }
+  if (!mics.length && !sources.length && !(geometry.reason)) {
+    svg.appendChild(svgEl("text", { x: 240, y: 160, "text-anchor": "middle", "font-size": 13, fill: "#9ca3af" },
+      "暂无声源/麦克风几何，可直接画出拾音区域"));
+  }
+}
+
+// ---- 三维视图：等距/斜投影 + 方位角旋转（只读展示，绘制区域请用二维） ----
+function drawMap3D(geometry, region, preview) {
+  const svg = $("map");
+  svg.innerHTML = "";
+  const mics = geometry.microphones || [];
+  const sources = geometry.sources || [];
+  const r = preview || region;
+  const center = r.center || [0, 0];
+  const height = r.steering_height == null ? 1.4 : r.steering_height;
+  const radius = r.radius || 1;
+
+  const pts3 = [...mics, ...sources.map((s) => s.position),
+                [center[0], center[1], height], [center[0] + radius, center[1], height]];
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of pts3) {
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+    minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+    minZ = Math.min(minZ, p[2] || 0); maxZ = Math.max(maxZ, p[2] || 0);
+  }
+  if (!isFinite(minX)) { minX = maxX = minY = maxY = minZ = maxZ = 0; }
+  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
+  const pad = Math.max(span * 0.15, 0.2);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+  const az = state.azimuth * Math.PI / 180;
+  const ca = Math.cos(az), sa = Math.sin(az);
+  const scale = Math.min(360 / (span + 2 * pad), 200 / (maxZ - minZ + 2 * pad + span * 0.55));
+
+  // 世界 (x,y,z) -> 水平 u = x*ca + y*sa, 深度 v = -x*sa + y*ca；z 向上。
+  const proj = (p) => ({
+    x: 240 + ((p[0] - cx) * ca + (p[1] - cy) * sa) * scale,
+    y: 205 - (-(p[0] - cx) * sa + (p[1] - cy) * ca) * scale * 0.5 - ((p[2] || 0) - cz) * scale,
+  });
+  const step = niceStep(maxX - minX) || 1;
+  const gz = minZ - 0.01;
+  const line = (a, b, color, width, dash) => svg.appendChild(svgEl("line", {
+    x1: proj(a).x, y1: proj(a).y, x2: proj(b).x, y2: proj(b).y,
+    stroke: color, "stroke-width": width || 1, "stroke-dasharray": dash || "none",
+  }));
+  for (let x = Math.floor(minX / step) * step; x <= maxX; x += step) {
+    line([x, minY, gz], [x, maxY, gz], "#e5e9f0", 1);
+  }
+  for (let y = Math.floor(minY / step) * step; y <= maxY; y += step) {
+    line([minX, y, gz], [maxX, y, gz], "#e5e9f0", 1);
+  }
+  line([minX, cy, gz], [maxX, cy, gz], "#9ca3af", 1.2);
+  line([cx, minY, gz], [cx, maxY, gz], "#9ca3af", 1.2);
+  line([cx, cy, minZ], [cx, cy, maxZ], "#9ca3af", 1.2);
+  svg.appendChild(svgEl("text", { x: proj([maxX, cy, gz]).x + 4, y: proj([maxX, cy, gz]).y, "font-size": 10, fill: "#6b7280" }, "x"));
+  svg.appendChild(svgEl("text", { x: proj([cx, maxY, gz]).x + 4, y: proj([cx, maxY, gz]).y, "font-size": 10, fill: "#6b7280" }, "y"));
+  svg.appendChild(svgEl("text", { x: proj([cx, cy, maxZ]).x + 4, y: proj([cx, cy, maxZ]).y, "font-size": 10, fill: "#6b7280" }, "z"));
+
+  // 目标区域：在高度平面上的投影椭圆。
+  const c = proj([center[0], center[1], height]);
+  svg.appendChild(svgEl("ellipse", {
+    cx: c.x, cy: c.y, rx: Math.max(2, radius * scale), ry: Math.max(2, radius * scale * 0.5),
+    fill: "rgba(37,99,235,0.08)", stroke: "#2563eb", "stroke-width": 1.5,
+    "stroke-dasharray": preview ? "4 3" : "5 4",
+  }));
+  line([center[0], center[1], minZ], [center[0], center[1], height], "#93c5fd", 1, "3 3");
+  svg.appendChild(svgEl("circle", { cx: c.x, cy: c.y, r: 4, fill: "#2563eb" }));
+
+  const drawPoint = (p, color, label, r) => {
+    const q = proj(p);
+    svg.appendChild(svgEl("circle", { cx: q.x, cy: q.y, r: r, fill: color, stroke: "#fff", "stroke-width": 1 }));
+    svg.appendChild(svgEl("text", { x: q.x + 7, y: q.y - 6, "font-size": 11, fill: color }, label));
+  };
+  for (const [i, m] of mics.entries()) drawPoint(m, "#2563eb", "M" + i, 5);
+  for (const s of sources) drawPoint(s.position, "#dc2626", "S" + s.index, 6);
+
+  if (!mics.length && !sources.length) {
+    svg.appendChild(svgEl("text", { x: 240, y: 160, "text-anchor": "middle", "font-size": 13, fill: "#9ca3af" },
+      "暂无声源/麦克风几何，可旋转查看指向点"));
+  }
+  $("mapNote").textContent = "三维斜视图：蓝点=麦克风，红点=声源，蓝色椭圆=目标区域，虚线=指向点到地面的投影。方位角 " + state.azimuth + "°。绘制区域请切回二维俯视。";
+}
+
+function setViewMode(mode) {
+  state.viewMode = mode;
+  $("view2d").classList.toggle("mode-on", mode === "2d");
+  $("view3d").classList.toggle("mode-on", mode === "3d");
+  $("mapTools2d").style.display = mode === "2d" ? "flex" : "none";
+  $("azimuthWrap").style.display = mode === "3d" ? "flex" : "none";
+  drawMap(state.geometry, readRegion());
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  for (const [id, m] of [["modeCenter", "center"], ["modeDraw", "draw"], ["modeRadius", "radius"]]) {
+    $(id).classList.toggle("mode-on", m === mode);
+  }
+}
+
+function svgPoint(event) {
+  const svg = $("map");
+  const rect = svg.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) / rect.width * 480,
+    y: (event.clientY - rect.top) / rect.height * 320,
+  };
+}
+
+function initMapInteraction() {
+  let dragStart = null;
+  const svg = $("map");
+  svg.addEventListener("pointerdown", (event) => {
+    if (!state.view) return;
+    const p = svgPoint(event);
+    const world = { x: state.view.ux(p.x), y: state.view.uy(p.y) };
+    dragStart = world;
+    if (state.mode === "center") {
+      syncInputs({ center: [world.x, world.y], radius: Number($("radius").value) });
+      drawMap(state.geometry, readRegion());
+    } else if (state.mode === "draw") {
+      drawMap(state.geometry, readRegion(), { center: [world.x, world.y], radius: 0.01 });
+    } else if (state.mode === "radius") {
+      // 半径模式在 pointermove 中根据到圆心的距离更新。
+    }
+    svg.setPointerCapture(event.pointerId);
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (!dragStart || !state.view) return;
+    const p = svgPoint(event);
+    const world = { x: state.view.ux(p.x), y: state.view.uy(p.y) };
+    if (state.mode === "draw") {
+      const radius = Math.hypot(world.x - dragStart.x, world.y - dragStart.y);
+      drawMap(state.geometry, readRegion(), { center: [dragStart.x, dragStart.y], radius: Math.max(radius, 0.01) });
+    } else if (state.mode === "radius") {
+      const center = readRegion().center;
+      const radius = Math.hypot(world.x - center[0], world.y - center[1]);
+      drawMap(state.geometry, readRegion(), { center, radius: Math.max(radius, 0.01) });
+    }
+  });
+  svg.addEventListener("pointerup", (event) => {
+    if (!dragStart || !state.view) return;
+    const p = svgPoint(event);
+    const world = { x: state.view.ux(p.x), y: state.view.uy(p.y) };
+    if (state.mode === "draw") {
+      const radius = Math.hypot(world.x - dragStart.x, world.y - dragStart.y);
+      syncInputs({ center: [dragStart.x, dragStart.y], radius: Math.max(radius, 0.01) });
+    } else if (state.mode === "radius") {
+      const center = readRegion().center;
+      const radius = Math.hypot(world.x - center[0], world.y - center[1]);
+      syncInputs({ center, radius: Math.max(radius, 0.01) });
+    }
+    drawMap(state.geometry, readRegion());
+    dragStart = null;
+    try { svg.releasePointerCapture(event.pointerId); } catch (_) {}
+  });
+  for (const id of ["cx", "cy", "radius"]) {
+    $(id).addEventListener("input", () => drawMap(state.geometry, readRegion()));
+  }
+  $("modeCenter").addEventListener("click", () => setMode("center"));
+  $("modeDraw").addEventListener("click", () => setMode("draw"));
+  $("modeRadius").addEventListener("click", () => setMode("radius"));
+  $("view2d").addEventListener("click", () => setViewMode("2d"));
+  $("view3d").addEventListener("click", () => setViewMode("3d"));
+  $("azimuth").addEventListener("input", (e) => {
+    state.azimuth = Number(e.target.value);
+    $("azimuthLabel").textContent = state.azimuth + "°";
+    drawMap(state.geometry, readRegion());
+  });
+}
+
+// ---- 自定义场景 ----
+function customStatus(text, isError = false) {
+  const el = $("customStatus");
+  el.textContent = text;
+  el.className = "status" + (isError ? " error" : "");
+}
+
+function toggleCustomBox() {
+  const box = $("customBox");
+  const show = box.style.display === "none";
+  box.style.display = show ? "block" : "none";
+  $("customToggle").textContent = show ? "收起自定义" : "＋ 自定义场景";
+}
+
+function fillCustomTemplate() {
+  const item = state.scenarios.find((s) => s.name === $("scenario").value);
+  if (!item) { customStatus("请先选择一个基础预设", true); return; }
+  const tpl = { label: item.label + " · 副本", region: readRegion() };
+  $("customJson").value = JSON.stringify(tpl, null, 2);
+  customStatus("已填入当前区域与中文名，可继续编辑后保存。");
+}
+
+async function saveCustomScenario() {
+  const name = $("customName").value.trim();
+  let config = {};
+  const raw = $("customJson").value.trim();
+  if (raw) {
+    try { config = JSON.parse(raw); }
+    catch (error) { customStatus("JSON 解析失败：" + error.message, true); return; }
+    if (typeof config !== "object" || config === null || Array.isArray(config)) {
+      customStatus("覆盖配置须为 JSON 对象", true); return;
+    }
+  }
+  try {
+    const result = await getJSON("/api/scenarios/custom", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, base: $("scenario").value, config }),
+    });
+    customStatus(`已保存：${result.label || name}，正在刷新场景列表…`);
+    await loadScenarios();
+    const select = $("scenario");
+    if ([...select.options].some((o) => o.value === result.name)) {
+      select.value = result.name;
+      applyPreset();
+    }
+  } catch (error) {
+    customStatus("保存失败：" + error.message, true);
+  }
+}
+
+// ---- 频谱诊断：小型 radix-2 FFT + 对数频率轴 ----
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k], ui = im[i + k];
+        const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const nr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+
+async function drawSpectrum(url, canvasId) {
+  const canvas = $(canvasId);
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("no audio");
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+    const rate = buffer.sampleRate;
+    audioCtx.close();
+    const data = buffer.getChannelData(0);
+    const size = 512, hop = 256, rows = size / 2;
+    const frames = Math.min(Math.floor((data.length - size) / hop), 200);
+    if (frames < 2) throw new Error("too short");
+    const win = Array.from({ length: size }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (size - 1)));
+    const W = canvas.width, H = canvas.height;
+    const fMin = 80, fMax = Math.min(8000, rate / 2);
+    // 每一行像素对应的 FFT bin（对数频率轴，顶部高频）。
+    const rowBin = new Int32Array(H);
+    for (let y = 0; y < H; y++) {
+      const f = fMax * Math.pow(fMin / fMax, y / (H - 1));
+      rowBin[y] = Math.min(rows - 1, Math.max(1, Math.round(f / (rate / size))));
+    }
+    const image = ctx.createImageData(W, H);
+    // 先整幅收集 dB，再统一归一化，避免逐帧归一化造成亮度跳变。
+    const grid = new Float32Array(W * H);
+    let peak = -Infinity;
+    for (let t = 0; t < frames; t++) {
+      const re = new Float64Array(size), im = new Float64Array(size);
+      for (let i = 0; i < size; i++) re[i] = data[t * hop + i] * win[i];
+      fft(re, im);
+      const x = Math.round(t / (frames - 1) * (W - 1));
+      for (let y = 0; y < H; y++) {
+        const k = rowBin[y];
+        let energy = 0;
+        for (let d = -1; d <= 1; d++) {
+          const kk = Math.min(rows - 1, Math.max(0, k + d));
+          energy += re[kk] * re[kk] + im[kk] * im[kk];
+        }
+        const db = 10 * Math.log10(energy / 3 + 1e-12);
+        const idx = y * W + x;
+        if (db > grid[idx]) grid[idx] = db;
+        if (db > peak) peak = db;
+      }
+    }
+    const floor = peak - 60;
+    for (let i = 0; i < grid.length; i++) {
+      const norm = Math.max(0, Math.min(1, (grid[i] - floor) / (peak - floor)));
+      const [r, g, b] = spectrumColor(norm);
+      image.data[i * 4] = r; image.data[i * 4 + 1] = g; image.data[i * 4 + 2] = b; image.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(image, 0, 0);
+  } catch (error) {
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("频谱暂不可用", 10, 24);
+  }
+}
+
+function spectrumColor(t) {
+  // 深蓝 → 青 → 黄 → 红
+  const stops = [[12, 22, 52], [24, 92, 152], [40, 180, 170], [225, 210, 90], [220, 70, 50]];
+  const pos = Math.min(0.999, Math.max(0, t)) * (stops.length - 1);
+  const i = Math.floor(pos), f = pos - i;
+  const a = stops[i], b = stops[i + 1];
+  return [0, 1, 2].map((c) => Math.round(a[c] + (b[c] - a[c]) * f));
+}
+
+async function drawWaveform(url, canvasId) {
+  const canvas = $(canvasId);
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return;
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const buffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+    audioCtx.close();
+    const data = buffer.getChannelData(0);
+    const end = Math.min(data.length, Math.floor(buffer.sampleRate * 4));
+    const columns = canvas.width;
+    const step = Math.max(1, Math.floor((end / columns) / 2));
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x < columns; x++) {
+      const start = Math.floor(x * end / columns);
+      const stop = Math.min(end, start + step * 2);
+      let min = 1, max = -1;
+      for (let i = start; i < stop; i++) {
+        if (data[i] < min) min = data[i];
+        if (data[i] > max) max = data[i];
+      }
+      if (min > max) { min = 0; max = 0; }
+      ctx.moveTo(x + 0.5, canvas.height / 2 - max * canvas.height / 2);
+      ctx.lineTo(x + 0.5, canvas.height / 2 - min * canvas.height / 2);
+    }
+    ctx.stroke();
+  } catch (error) {
+    // 波形只是辅助展示，失败不阻断试听与指标。
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("波形暂不可用", 10, 24);
+  }
+}
+
+async function runScenario() {
+  const button = $("run");
+  button.disabled = true;
+  setStatus("正在运行，请稍候…");
+  try {
+    const payload = {
+      scenario: $("scenario").value,
+      region: {
+        center: [Number($("cx").value), Number($("cy").value)],
+        radius: Number($("radius").value),
+        steering_height: Number($("height").value),
+      },
+    };
+    const result = await getJSON("/api/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const detail = await getJSON(`/api/runs/${result.run_id}`);
+    state.detail = detail;
+    $("runTag").style.display = "inline-block";
+    $("runTag").textContent = result.run_id;
+    const scenario = detail.scenario || {};
+    const region = scenario.region || payload.region;
+    showDiagnostics(scenario, result.metrics, region);
+    const geometry = {
+      microphones: scenario.resolved_microphones || scenario.microphones || [],
+      sources: (scenario.resolved_source_positions || []).map((position, index) => ({ index, position })),
+    };
+    drawMap(geometry, region);
+    $("mapNote").textContent = "红点 = 声源，蓝点 = 麦克风，虚线圆 = 目标区域。实测场景的位置取自本次运行的解析结果。";
+    $("audioIn").src = `/api/audio/${result.run_id}/reference_mic.wav`;
+    $("audioOut").src = `/api/audio/${result.run_id}/enhanced.wav`;
+    drawSpectrum(`/api/audio/${result.run_id}/reference_mic.wav`, "specIn");
+    drawSpectrum(`/api/audio/${result.run_id}/enhanced.wav`, "specOut");
+    setStatus(`运行完成：${result.run_id}`);
+  } catch (error) {
+    setStatus(`运行失败：${error.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---- 公平评测对比视图 ----
+const CMP_METRICS = [
+  ["si_sdr_db", "SI-SDR (dB)", "higher"],
+  ["delta_si_sdr_db", "ΔSI-SDR (dB)", "higher"],
+  ["sdr_db", "SDR (dB)", "higher"],
+  ["sir_db", "SIR (dB)", "higher"],
+  ["sar_db", "SAR (dB)", "higher"],
+  ["rtf", "RTF (越小越快)", "lower"],
+  ["processing_seconds", "处理耗时 (s)", "lower"],
+];
+
+function cmpStatus(text, isError = false) {
+  const el = $("cmpStatus");
+  el.textContent = text;
+  el.className = "status" + (isError ? " error" : "");
+}
+
+async function loadCompareRuns() {
+  try {
+    state.compare = await getJSON("/api/compare");
+    const select = $("cmpRun");
+    const previous = select.value;
+    select.innerHTML = "";
+    if (!state.compare.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "（暂无记录，先运行 python main.py）";
+      select.appendChild(option);
+      cmpStatus("暂无对比记录。运行一次 `python main.py` 后刷新即可看到。");
+      return;
+    }
+    for (const item of state.compare) {
+      const option = document.createElement("option");
+      option.value = item.run_id;
+      option.textContent = `${item.run_id} · ${item.scenario || "?"} · [${(item.algorithms || []).join(", ")}]`;
+      select.appendChild(option);
+    }
+    if (previous && state.compare.some((r) => r.run_id === previous)) select.value = previous;
+    await loadCompareDetail();
+  } catch (error) {
+    cmpStatus(`加载对比列表失败：${error.message}`, true);
+  }
+}
+
+async function loadCompareDetail() {
+  const runId = $("cmpRun").value;
+  if (!runId) { $("cmpScores").innerHTML = ""; $("cmpWaves").innerHTML = ""; return; }
+  try {
+    const detail = await getJSON(`/api/compare/${runId}`);
+    const algs = detail.algorithms || [];
+    const scores = detail.scores || {};
+    if (!algs.length) { cmpStatus("该记录没有算法分数。", true); return; }
+    let html = '<table class="cmp-table"><thead><tr><th>指标</th>';
+    for (const alg of algs) html += `<th>${alg}</th>`;
+    html += "</tr></thead><tbody>";
+    for (const [key, label, direction] of CMP_METRICS) {
+      const values = algs.map((alg) => (scores[alg] || {})[key]);
+      const valid = values.filter((v) => typeof v === "number" && isFinite(v));
+      const best = valid.length ? (direction === "higher" ? Math.max(...valid) : Math.min(...valid)) : null;
+      html += `<tr><td>${label}</td>`;
+      for (const value of values) {
+        const isBest = best !== null && value === best;
+        html += `<td${isBest ? ' class="best-cell"' : ""}>${fmt(value)}</td>`;
+      }
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    $("cmpScores").innerHTML = html;
+    // 给最优单元格上色（用内联样式，避免和单 views 的 tr.best 冲突）。
+    $("cmpScores").querySelectorAll("td.best-cell").forEach((td) => {
+      td.style.background = "#ecfdf5";
+      td.style.fontWeight = "600";
+    });
+
+    let waves = "";
+    for (const alg of algs) {
+      const url = (detail.audio || {})[alg];
+      if (!url) continue;
+      waves += `<div class="cmp-wave"><h4>${alg} · 增强输出</h4>` +
+        `<canvas id="cmpWave-${alg}" width="960" height="84"></canvas>` +
+        `<audio controls preload="none" src="${url}"></audio></div>`;
+    }
+    waves += `<div class="cmp-wave"><h4>输入（参考麦克风，未增强）</h4>` +
+      `<canvas id="cmpWave-input" width="960" height="84"></canvas>` +
+      `<audio controls preload="none" src="/api/audio/${runId}/reference_mic.wav"></audio></div>`;
+    $("cmpWaves").innerHTML = waves;
+    for (const alg of algs) {
+      if ((detail.audio || {})[alg]) drawWaveform(detail.audio[alg], `cmpWave-${alg}`);
+    }
+    drawWaveform(`/api/audio/${runId}/reference_mic.wav`, "cmpWave-input");
+    cmpStatus(`已载入对比：${runId}`);
+  } catch (error) {
+    cmpStatus(`加载对比详情失败：${error.message}`, true);
+  }
+}
+
+$("run").addEventListener("click", runScenario);
+$("customToggle").addEventListener("click", toggleCustomBox);
+$("customLoad").addEventListener("click", fillCustomTemplate);
+$("customSave").addEventListener("click", saveCustomScenario);
+$("cmpRun").addEventListener("change", loadCompareDetail);
+$("cmpRefresh").addEventListener("click", loadCompareRuns);
+initMapInteraction();
+loadScenarios();
+loadCompareRuns();
+</script>
+</body>
+</html>

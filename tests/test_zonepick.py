@@ -1,10 +1,14 @@
 """使用临时合成音频验证首版闭环。"""
 
 import json
+from http.server import HTTPServer
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import h5py
 import numpy as np
@@ -15,6 +19,7 @@ from zonepick.application import run
 from zonepick.audio import analysis, read_audio, speech_segment, synthesis, write_audio
 from zonepick.evaluation import si_sdr
 from zonepick.regions import circle_members
+from zonepick.web.server import build_handler, parse_region
 from zonepick.simulation import free_field_rir, mix_sources, propagation_seconds
 from zonepick.simulation.dechorate import load_measurement
 from zonepick.simulation import mcvampire
@@ -190,6 +195,157 @@ class ApplicationTests(unittest.TestCase):
         np.testing.assert_allclose(responses[0][:, 0] / responses[0][1, 0], [14, 1, 5])
         with self.assertRaisesRegex(ValueError, "无唯一"):
             mcvampire.load_measurement(self.root, [{"seat": 2, "azimuth": 90}], [0])
+
+
+class WebTests(unittest.TestCase):
+    """验证网页把区域参数交给同一应用层，并把结果与运行目录正确关联。"""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+
+    def start_server(self, handler, root):
+        server = HTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join, 2)
+        return server.server_port
+
+    def request(self, port, path, payload=None):
+        url = f"http://127.0.0.1:{port}{path}"
+        if payload is None:
+            try:
+                with urlopen(url, timeout=5) as response:
+                    return response.status, json.loads(response.read())
+            except HTTPError as error:
+                return error.code, json.loads(error.read())
+        data = json.dumps(payload).encode("utf-8")
+        request = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    def test_parse_region_validates_inputs(self):
+        self.assertEqual(
+            parse_region({"center": [1, 2], "radius": 0.5, "steering_height": 1.4}),
+            {"center": [1, 2], "radius": 0.5, "steering_height": 1.4},
+        )
+        for bad in ({}, {"center": [1], "radius": 1, "steering_height": 1},
+                    {"center": [1, 2], "radius": 0, "steering_height": 1},
+                    {"center": [1, 2], "radius": 1, "steering_height": "x"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_region(bad)
+
+    def test_post_runs_application_config_and_links_result(self):
+        calls = []
+        run_id = "20260101T000000-0123456789ab"
+
+        def fake_run(config, paths, output_root):
+            calls.append((config, paths, output_root))
+            directory = self.root / run_id
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "scenario.json").write_text(json.dumps(config), encoding="utf-8")
+            (directory / "metrics.json").write_text(json.dumps({
+                "input_si_sdr_db": -0.5, "output_si_sdr_db": 0.5,
+                "reference_available": True, "processing_seconds": 0.01,
+            }), encoding="utf-8")
+            (directory / "enhanced.wav").write_bytes(b"RIFFfake")
+            return directory, {"input_si_sdr_db": -0.5, "output_si_sdr_db": 0.5,
+                               "reference_available": True, "processing_seconds": 0.01}
+
+        handler = build_handler(self.root, datasets={"librispeech": self.root})
+        port = self.start_server(handler, self.root)
+        with patch("zonepick.web.server.run", side_effect=fake_run):
+            status, submitted = self.request(port, "/api/runs", {
+                "scenario": "free_field",
+                "region": {"center": [1.15, 3.5], "radius": 0.6, "steering_height": 1.4},
+            })
+        self.assertEqual(status, 201)
+        self.assertEqual(submitted["run_id"], run_id)
+        self.assertEqual(len(calls), 1)
+        config, paths, root = calls[0]
+        self.assertEqual(config["backend"], "free_field")
+        self.assertEqual(config["region"]["center"], [1.15, 3.5])
+        self.assertEqual(paths, {"librispeech": self.root})
+        self.assertEqual(root, self.root)
+
+        status, detail = self.request(port, f"/api/runs/{run_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["scenario"]["region"]["radius"], 0.6)
+        self.assertEqual(detail["metrics"]["output_si_sdr_db"], 0.5)
+        with urlopen(f"http://127.0.0.1:{port}/api/audio/{run_id}/enhanced.wav", timeout=5) as response:
+            self.assertEqual(response.read(), b"RIFFfake")
+
+    def test_unknown_scenario_and_bad_region_return_readable_error(self):
+        handler = build_handler(self.root, datasets={})
+        port = self.start_server(handler, self.root)
+        status, body = self.request(port, "/api/runs", {"scenario": "../secret", "region": {}})
+        self.assertEqual(status, 400)
+        self.assertIn("未知预设场景", body["error"])
+        status, body = self.request(port, "/api/runs", {
+            "scenario": "free_field",
+            "region": {"center": [1, 2], "radius": -1, "steering_height": 1},
+        })
+        self.assertEqual(status, 400)
+        self.assertIn("半径", body["error"])
+
+    def test_scenarios_and_preview_expose_geometry_and_region(self):
+        handler = build_handler(self.root, datasets={})
+        port = self.start_server(handler, self.root)
+        status, items = self.request(port, "/api/scenarios")
+        self.assertEqual(status, 200)
+        free = next(item for item in items if item["name"] == "free_field")
+        self.assertEqual(len(free["geometry"]["microphones"]), 5)
+        self.assertEqual(len(free["geometry"]["sources"]), 2)
+        self.assertIn("center", free["region"])
+        status, detail = self.request(port, "/api/preview/free_field")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(detail["geometry"]["sources"]), 2)
+        self.assertEqual(detail["region"]["radius"], 0.6)
+
+    def test_compare_routes_list_detail_and_audio(self):
+        run_id = "20260101T000000-abcdefabcdef"
+        directory = self.root / "compare" / run_id  # main.py 实际写入 runs/compare/<id>/
+        directory.mkdir(parents=True)
+        manifest = {
+            "run_id": run_id,
+            "scenario": {"name": "free_field", "backend": "free_field"},
+            "algorithms": ["identity", "das"],
+            "summary": {"identity": {"si_sdr_db": -1.0}, "das": {"si_sdr_db": 0.5}},
+        }
+        (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        for name in ("identity", "das"):
+            (directory / f"{name}.metrics.json").write_text(
+                json.dumps(manifest["summary"][name]), encoding="utf-8")
+            (directory / f"{name}.wav").write_bytes(b"RIFFfake")
+        # 一个没有 manifest 的目录不应出现在对比列表。
+        (self.root / "not_a_run").mkdir()
+
+        handler = build_handler(self.root, datasets={})
+        port = self.start_server(handler, self.root)
+        status, items = self.request(port, "/api/compare")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["run_id"], run_id)
+        self.assertEqual(items[0]["algorithms"], ["identity", "das"])
+
+        status, detail = self.request(port, f"/api/compare/{run_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(set(detail["scores"]), {"identity", "das"})
+        self.assertEqual(detail["scores"]["das"]["si_sdr_db"], 0.5)
+        self.assertIn("das", detail["audio"])
+        self.assertEqual(detail["audio"]["das"], f"/api/audio/{run_id}/das.wav")
+        with urlopen(f"http://127.0.0.1:{port}{detail['audio']['das']}", timeout=5) as response:
+            self.assertEqual(response.read(), b"RIFFfake")
+
+        # 路径穿越的名字要被拒绝。
+        status, body = self.request(port, "/api/compare/..%2Fsecret")
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":
