@@ -1,6 +1,6 @@
 # 旧语音处理代码审计与复用计划
 
-本次审计读取本地 `audio-ml-learning` 工作树，以 ZonePick [产品需求文档](PRD.md)、[技术架构](ARCHITECTURE.md)和[开发环境](ENVIRONMENT.md)为依据。以下路径均相对旧仓库根目录。复用顺序为 v0.1-A 的候选计划，具体几何、参考语音和验收口径仍需评审。
+本次审计读取原 `audio-ml-learning` 工作树（旧本地路径已失效，仅作历史记录），以 ZonePick [产品需求文档](PRD.md)、[技术架构](ARCHITECTURE.md)和[开发环境](ENVIRONMENT.md)为依据。以下路径均相对旧仓库根目录。复用顺序为 v0.1-A 的候选计划，具体几何、参考语音和验收口径仍需评审。
 
 ## 复用结论
 

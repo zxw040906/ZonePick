@@ -1,6 +1,9 @@
 {
-  "librispeech": {"path": "../audio-ml-learning/data/LibriSpeech", "enabled": true},
-  "dechorate": {"path": "../audio-ml-learning/data/dEchorate/rir", "enabled": true},
-  "mcvampire": {"path": "../shared-datasets/McVAMPIRE/V1.0", "enabled": true},
-  "cavemove": {"path": "../shared-datasets/CAVEMOVE", "enabled": true}
+  "librispeech": {"path": "data/raw/LibriSpeech/LibriSpeech", "enabled": true},
+  "aishell3": {"path": "data/raw/AISHELL3", "enabled": true},
+  "dns_noise": {"path": "data/raw/DNS_noise/noise_17class", "enabled": true},
+  "dns_rirs": {"path": "data/raw/DNS_RIRS/rirs_8ch", "enabled": true},
+  "dechorate": {"path": "data/raw/dEchorate/rir", "enabled": false},
+  "mcvampire": {"path": "data/raw/McVAMPIRE/V1.0", "enabled": false},
+  "cavemove": {"path": "data/raw/CAVEMOVE", "enabled": false}
 }

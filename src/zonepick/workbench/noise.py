@@ -21,8 +21,8 @@ from scipy.signal import resample_poly
 from zonepick.audio import read_audio
 from zonepick.simulation import convolve, free_field_rir
 
-DEFAULT_URBAN_ROOT = Path("/home/zxw/python_code/project/audio-ml-learning/data/UrbanSound8K/audio")
-DEFAULT_DRIVING_ROOT = Path("/home/zxw/python_code/project/shared-datasets/McVAMPIRE/V1.0/driving_noise")
+DEFAULT_URBAN_ROOT = Path(__file__).resolve().parents[3] / "data/raw/DNS_noise/noise_17class"  # 本机 DNS 17 类环境噪声（旧 UrbanSound8K 路径已失效）
+DEFAULT_DRIVING_ROOT = Path(__file__).resolve().parents[3] / "data/raw/driving_noise"  # 旧 McVAMPIRE 行驶噪声路径已失效；新版数据集走 DNS 噪声
 
 # UrbanSound8K 官方 10 类；类目来自 metadata 的 classID。
 URBAN_CLASSES = {

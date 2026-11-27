@@ -37,7 +37,7 @@ conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/
 conda run -n pytorch env PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-- 可复制 `configs/datasets.example.yaml` 到 Git 忽略的 `configs/local/datasets.yaml`，按需修改路径。示例使用同级旧仓库和同级 `shared-datasets/`，也可用 `--datasets` 指定配置。
+- 可复制 `configs/datasets.example.yaml` 到 Git 忽略的 `configs/local/datasets.yaml`，按需修改路径。示例指向项目内 `data/raw/`（本机已放好 LibriSpeech、AISHELL-3、DNS 噪声/RIRS），也可用 `--datasets` 指定配置。
 - `python main.py` 是推荐的一键入口：无需设置 `PYTHONPATH`，用预设场景准备一次（可选 `--noise` 多类型真实噪声），让 identity 与各 `--algorithms` 在同一份含噪输入上公平对比，随后在网页展示二维图、波形、多算法指标表与聆听对照；按 **Ctrl+C** 结束会删除本次产物与字节码缓存，加 `--keep` 可保留。可用 `--scenario` / `--port` 调整。
 - `python -m zonepick serve` 默认在 `http://127.0.0.1:8000/` 启动网页，仅用标准库 `http.server`，可用 `--host` / `--port` / `--output-root` 调整。网页直接调用应用层 `run()`，与命令行结果共用同一套配置与产物结构；首版只提供预设场景和区域参数调整，不含频谱与完整场景编辑器。
 - 场景使用 16 kHz，将声源水平投影到闭合圆。带参考模式目前要求恰好一个区内声源。`region.center` 和 `steering_height` 构成 DAS 指向，`channels` 同步选择波形与几何，`reference_channel` 指所选通道内的索引。固定配置使用明确的文件与裁剪位置，种子随配置保存，当前流程无需抽样。
@@ -76,7 +76,7 @@ conda run -n pytorch env PYTHONPATH=src python -m zonepick compare \
   --config configs/scenarios/free_field.json --algorithms das --noise \
   --output-root runs/compare
 conda run -n pytorch env PYTHONPATH=src python -m zonepick split \
-  --root /home/zxw/python_code/project/audio-ml-learning/data/LibriSpeech \
+  --root /root/zxw/ZonePick/data/raw/LibriSpeech/LibriSpeech \
   --output runs/splits/librispeech.json --train-ratio 0.7 --val-ratio 0.15 --test-ratio 0.15
 ```
 

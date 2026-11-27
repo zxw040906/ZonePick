@@ -14,10 +14,10 @@ conda run -n pytorch env PYTHONPATH=src python -m zonepick datasets
 
 | 数据源 | 相对 ZonePick 的位置 | ZonePick 用途 |
 | --- | --- | --- |
-| LibriSpeech | `../audio-ml-learning/data/LibriSpeech` | 两位不同说话人的干语音 |
-| dEchorate | `../audio-ml-learning/data/dEchorate/rir` | 固定测点的房间 RIR 闭环 |
-| In-Car McVAMPIRE V1.0 | `../shared-datasets/McVAMPIRE/V1.0` | 固定口部位置与朝向的车内 RIR 闭环 |
-| CAVEMOVE v4 | `../shared-datasets/CAVEMOVE` | 后续车内 RIR 与驾驶噪声场景 |
+| LibriSpeech | `data/raw/LibriSpeech/LibriSpeech` | 英文干语音（train-clean-100/dev/test-clean，本机已下载） |
+| dEchorate | `data/raw/dEchorate/rir`（未下载，enabled=false） | 固定测点的房间 RIR 闭环 |
+| In-Car McVAMPIRE V1.0 | `data/raw/McVAMPIRE/V1.0`（未下载，enabled=false） | 固定口部位置与朝向的车内 RIR 闭环 |
+| CAVEMOVE v4 | `data/raw/CAVEMOVE`（未下载，enabled=false） | 后续车内 RIR 与驾驶噪声场景 |
 
 本地覆盖配置、数据和生成音频只在工作区外部或 Git 忽略目录存放。数据许可以记录中的署名及使用条件为准。即使数据可公开下载，本仓库也只提交配置示例、链接和自编写的适配代码。
 
