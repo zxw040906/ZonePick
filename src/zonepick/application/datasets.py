@@ -19,7 +19,7 @@ def read_mapping(path):
     return value
 
 
-def dataset_paths(config=None):
+def dataset_entries(config=None):
     """显式配置优先，其次本地文件，最后使用示例和已有环境变量。"""
     local = Path("configs/local/datasets.yaml")
     selected = Path(config) if config else local
@@ -31,10 +31,13 @@ def dataset_paths(config=None):
     if use_defaults and old_root:
         entries["librispeech"]["path"] = str(Path(old_root) / "LibriSpeech")
         entries["dechorate"]["path"] = str(Path(old_root) / "dEchorate" / "rir")
-    return {
-        name: Path(os.path.expandvars(entry["path"])).expanduser()
-        for name, entry in entries.items() if entry.get("enabled", True)
-    }
+    return {name: {**entry, "path": Path(os.path.expandvars(entry["path"])).expanduser()}
+            for name, entry in entries.items()}
+
+
+def dataset_paths(config=None):
+    return {name: entry["path"] for name, entry in dataset_entries(config).items()
+            if entry.get("enabled", True)}
 
 
 def require_dataset(paths, name):
@@ -48,11 +51,23 @@ def require_dataset(paths, name):
 def inspect_datasets(paths):
     """抽查一个实际音频或一组 SOFA，输出可用性及格式。"""
     report = {}
-    for name in ("librispeech", "dechorate", "mcvampire", "cavemove"):
-        root = paths.get(name)
-        result = {"path": str(root) if root else None, "enabled": root is not None, "available": False}
+    for name, entry in paths.items():
+        if not isinstance(entry, dict):
+            entry = {"path": entry}
+        root = Path(entry["path"]) if entry.get("path") else None
+        enabled = entry.get("enabled", root is not None)
+        result = {"path": str(root) if root else None, "enabled": enabled,
+                  "exists": bool(root and root.is_dir()), "available": False,
+                  "extracted": None, "integrity_verified": None,
+                  "audio_readable": None,
+                  "adaptation": {"librispeech": "speech_and_splits", "aishell3": "speech_splits",
+                                 "mcvampire": "measured_rir_and_noise",
+                                 "dns_noise": "grouped_noise", "dechorate": "measured_rir"
+                                 }.get(name, "format_probe"),
+                  "target_array_registered": False}
+        result.update({key: entry[key] for key in ("extracted", "integrity_verified") if key in entry})
         try:
-            root = require_dataset(paths, name)
+            root = require_dataset({name: root} if enabled else {}, name)
             if name == "dechorate":
                 load_measurement(root, 1, [0, 1, 2, 3, 4])
                 result.update(format="SOFA/HDF5", sample_rate=48000, channels=5)
@@ -60,12 +75,20 @@ def inspect_datasets(paths):
                 mcvampire.load_measurement(root, [{"seat": 1, "azimuth": 0}], list(range(14)))
                 result.update(sample="ir/ir_mouth_pos1_0.wav", format="WAV",
                               sample_rate=24000, channels=14)
+                from zonepick.workbench.noise import list_noise_files, NoiseConfig
+                list_noise_files(NoiseConfig(kinds=["driving"], driving_root=root / "driving_noise"))
             else:
+                if name == "dns_noise":
+                    from zonepick.workbench.noise import list_local_recordings
+                    result["recording_groups"] = len(list_local_recordings(root))
                 suffix = "*.flac" if name == "librispeech" else "*.wav"
                 sample = next((p for p in root.rglob(suffix) if p.is_file()), None)
                 if sample is None:
                     raise ValueError(f"未找到 {suffix} 样例")
                 info = sf.info(sample)
+                with sf.SoundFile(sample) as stream:
+                    if not len(stream.read(32)):
+                        raise ValueError("Sample contains no frames")
                 result.update(sample=str(sample.relative_to(root)), format=info.format,
                               sample_rate=info.samplerate, channels=info.channels)
                 if not info.frames or (name == "librispeech" and
@@ -73,7 +96,7 @@ def inspect_datasets(paths):
                     raise ValueError("样例音轨格式不符合预期")
                 if name == "cavemove" and (info.channels != 8 or info.samplerate != 16000):
                     raise ValueError("CAVEMOVE 样例须为 16 kHz 八通道 WAV")
-            result["available"] = True
+            result.update(available=True, audio_readable=True)
         except (OSError, ValueError, RuntimeError, KeyError) as error:
             result["reason"] = str(error)
         report[name] = result

@@ -19,6 +19,9 @@ class DasAlgorithm(Algorithm):
             raise ValueError("sound_speed 须为正有限值")
         return self
 
+    def parameters(self):
+        return {"n_fft": self.n_fft, "sound_speed": self.sound_speed}
+
     def enhance(self, inp: AlgorithmInput) -> np.ndarray:
         return das_enhance(
             inp.mixture, inp.rate, inp.microphones, inp.region.steering_point,

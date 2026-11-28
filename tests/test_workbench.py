@@ -198,25 +198,40 @@ class NoiseTests(unittest.TestCase):
 
 
 class CleanupTests(unittest.TestCase):
-    def test_cleanup_only_removes_targets_inside_root_and_caches(self):
+    def test_cleanup_only_owns_current_temporary_run(self):
+        from zonepick.workbench.cleanup import temporary_run
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            artifact = root / "artifact"
-            artifact.mkdir()
-            (artifact / "x.wav").write_bytes(b"RIFF")
-            cache = artifact / "__pycache__"
+            history = root / "runs" / "compare" / "prior-run"
+            history.mkdir(parents=True)
+            cache = root / "__pycache__"
             cache.mkdir()
-            (cache / "mod.pyc").write_bytes(b"pyc")
-            outside = Path(tempfile.mkdtemp()) / "outside"
+            (history / "result.json").write_text("{}")
+            with temporary_run(root) as current:
+                (current / "artifact").write_text("temporary")
+                (current / "history-link").symlink_to(history, target_is_directory=True)
+            self.assertFalse(current.exists())
+            self.assertTrue((history / "result.json").is_file())
+            self.assertTrue(cache.is_dir())
+
+    def test_cleanup_rejects_symlinked_run_root_and_replaced_directory(self):
+        from zonepick.workbench.cleanup import temporary_run
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside"
             outside.mkdir()
-            self.addCleanup(lambda: __import__("shutil").rmtree(outside.parent, ignore_errors=True))
-
-            from zonepick.workbench.cleanup import cleanup_generated
-            removed = cleanup_generated([artifact, outside], root)
-
-            self.assertEqual(removed, 1)  # 外部目标被忽略
-            self.assertFalse(artifact.exists())
-            self.assertTrue(outside.exists())  # 项目根之外的目标不受影响
+            (root / "project").mkdir()
+            (root / "project" / "runs").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                with temporary_run(root / "project"):
+                    self.fail("unexpected temporary directory")
+            with temporary_run(root) as current:
+                current.rename(current.with_suffix(".moved"))
+                current.symlink_to(outside, target_is_directory=True)
+            self.assertTrue(outside.is_dir())
+            self.assertTrue(current.is_symlink())
 
 
 class CompareTests(unittest.TestCase):

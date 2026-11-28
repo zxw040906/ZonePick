@@ -59,6 +59,10 @@ class Algorithm:
         """加载配置/权重并返回自身；无状态算法直接返回 self。"""
         return self
 
+    def parameters(self) -> dict:
+        """Return resolved run parameters for the experiment manifest."""
+        return {}
+
     def enhance(self, inp: AlgorithmInput) -> np.ndarray:
         """从受限输入生成参考通道域单声道 [N]。"""
         raise NotImplementedError

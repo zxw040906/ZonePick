@@ -1,6 +1,6 @@
 # ZonePick
 
-ZonePick 是一个基于多麦克风阵列的目标区域语音增强与可视化仿真平台。项目以软件仿真为基础，计划支持用户配置声源、麦克风阵列和目标区域，并通过不同算法从多通道混合语音中提取目标区域语音。
+ZonePick 是车载区域拾音科研实验平台。项目建设统一数据集和评测体系，从多麦克风混合语音提取 FL、FR、RL、RR 四路固定区域语音，并比较 8、6、4、3、2 麦克风配置。
 
 ## 核心功能规划
 
@@ -16,7 +16,7 @@ ZonePick 是一个基于多麦克风阵列的目标区域语音增强与可视�
 
 ## 开发环境
 
-本地使用 VS Code 连接 WSL2 Ubuntu，通过 Codex 协作开发。项目暂时沿用已有的 Conda `pytorch` 环境，使用 Python 3.9.25 和 PyTorch 2.0.1（CUDA build 11.8）。后续较大规模训练计划在学校 GPU 服务器上开展。详见[开发环境](docs/ENVIRONMENT.md)。
+当前在 Remote-SSH 服务器的 Conda `zxw` 环境验证。解释器、依赖与历史 WSL2 环境见 [开发环境](docs/ENVIRONMENT.md)。
 
 ## 当前开发状态
 
@@ -24,17 +24,18 @@ v0.1-A 已提供 WSL2 CPU 命令行闭环，v0.1-B 已提供最小网页可视�
 
 ## 运行 v0.1-A
 
-从仓库根目录执行。使用已有 Conda `pytorch` 环境，通过 `PYTHONPATH=src` 运行，无需安装 ZonePick。配置查找及数据状态见[数据集](docs/DATASETS.md)。
+从仓库根目录执行。使用已有 Conda `zxw` 环境，通过 `PYTHONPATH=src` 运行，无需安装 ZonePick。配置查找及数据状态见[数据集](docs/DATASETS.md)。
 
 ```bash
-conda run -n pytorch env PYTHONPATH=src python -m zonepick datasets
-conda run -n pytorch python main.py                 # 一键：公平对比 + 网页 + 退出自动清理
-conda run -n pytorch python main.py --noise --keep  # 含噪场景，并保留产物
-conda run -n pytorch env PYTHONPATH=src python -m zonepick serve
-conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/scenarios/free_field.json
-conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/scenarios/dechorate.json
-conda run -n pytorch env PYTHONPATH=src python -m zonepick run --config configs/scenarios/mcvampire.json
-conda run -n pytorch env PYTHONPATH=src python -m unittest discover -s tests -v
+conda run -n zxw env PYTHONPATH=src python -m zonepick datasets
+conda run -n zxw python main.py                 # 一键：公平对比 + 网页 + 默认保留产物
+conda run -n zxw python main.py --noise --keep  # 含噪场景，并保留产物
+conda run -n zxw env PYTHONPATH=src python -m zonepick serve
+conda run -n zxw env PYTHONPATH=src python -m zonepick run --config configs/scenarios/free_field.json
+conda run -n zxw env PYTHONPATH=src python -m zonepick run --config configs/scenarios/dechorate.json
+conda run -n zxw env PYTHONPATH=src python -m zonepick run --config configs/scenarios/mcvampire.json
+conda run -n zxw env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+  PYTHONPATH=src:data/cache/pytest-runtime python -m pytest -q
 ```
 
 - 可复制 `configs/datasets.example.yaml` 到 Git 忽略的 `configs/local/datasets.yaml`，按需修改路径。示例指向项目内 `data/raw/`（本机已放好 LibriSpeech、AISHELL-3、DNS 噪声/RIRS），也可用 `--datasets` 指定配置。
@@ -60,22 +61,23 @@ conda run -n pytorch env PYTHONPATH=src python -m unittest discover -s tests -v
 - [技术架构](docs/ARCHITECTURE.md)
 - [开发环境](docs/ENVIRONMENT.md)
 - [数据集](docs/DATASETS.md)
-- [旧代码审计](docs/LEGACY_CODE_AUDIT.md)
+- [项目审计与开发记录](docs/AUDIT.md)
+- [四区评测协议](docs/EVALUATION.md)
 
 ## 公平评测工作台（实验性）
 
 工作台把"造输入、隔离真值、统一评分、多算法对比"固定下来，便于只改算法就做公平比较：
 
-- **插件接口**：`zonepick.algorithms` 提供类式 `Algorithm.load()/enhance()` 接口。算法只能看到 `AlgorithmInput`（多通道混合、采样率、公开阵列几何、用户区域），看不到真实声源位置、干净目标、干扰或理想掩码，结构测试守护白名单。已注册 `das`（频域几何 DAS）、`mvdr`（Souden/Benesty/Affes, IEEE TASLP 2010, DOI 10.1109/TASL.2009.2025790 统计型 MVDR：区域指向 + 从混合估计噪声协方差求权，可配 n_fft/diagonal_load/cov_estimate=sample 或 speech_absence；python main.py 默认对比 das 与 mvdr）和 `identity`（未处理基线）；纯神经网络可用同一接口预留 `load()` 加载权重、`enhance()` 推理。Oracle 诊断插件需显式导入并打 `kind="oracle"`，不参与正常排名。
+- **插件接口**：`zonepick.algorithms` 提供类式 `Algorithm.load()/enhance()` 接口。算法只能看到 `AlgorithmInput`（多通道混合、采样率、公开阵列几何、用户区域），看不到真实声源位置、干净目标、干扰或理想掩码，结构测试守护白名单。已注册 `das`（频域几何 DAS）、`mvdr`（几何导向矢量 MVDR：区域指向 + 从混合估计噪声协方差求权，可配 n_fft/diagonal_load/cov_estimate=sample 或 speech_absence；python main.py 默认对比 das 与 mvdr）和 `identity`（未处理基线）；纯神经网络可用同一接口预留 `load()` 加载权重、`enhance()` 推理。Oracle 诊断插件需显式导入并打 `kind="oracle"`，不参与正常排名。
 - **丰富指标**：每次对比输出 SI-SDR、相对未处理基线的 ΔSI-SDR、BSS 风格 SDR/SIR/SAR、实时因子 RTF，以及可选 STOI/PESQ 接口（需另装依赖）。指标函数有独立单元测试锁定口径。
-- **真实复杂噪声**：`NoiseConfig` 支持 UrbanSound8K 十类环境音与 McVAMPIRE 多车速行驶噪声，多类型、多源、按 SNR 设定能量、空间扩散/实测两种注入模式，全程固定种子可复现。噪声作为干扰注入，参考始终是参考麦克风处的独立混响目标。
+- **真实复杂噪声**：`NoiseConfig` 支持本地 17 组环境录音、McVAMPIRE 行驶噪声和显式配置的 UrbanSound8K。多源叠加后按参考通道统一标定总 SNR。实测模式校验通道映射，扩散模式记录仿真来源。
 - **参数化数据划分**：`python -m zonepick split --root <数据根> --output <manifest.json> --train-ratio ... --val-ratio ... --test-ratio ... --seed ...` 生成按说话人/会话分组隔离的 train/val/test 冻结 manifest，比例与种子都是参数，测试条目不进入训练命名空间。
 
 ```bash
-conda run -n pytorch env PYTHONPATH=src python -m zonepick compare \
+conda run -n zxw env PYTHONPATH=src python -m zonepick compare \
   --config configs/scenarios/free_field.json --algorithms das --noise \
   --output-root runs/compare
-conda run -n pytorch env PYTHONPATH=src python -m zonepick split \
+conda run -n zxw env PYTHONPATH=src python -m zonepick split \
   --root /root/zxw/ZonePick/data/raw/LibriSpeech/LibriSpeech \
   --output runs/splits/librispeech.json --train-ratio 0.7 --val-ratio 0.15 --test-ratio 0.15
 ```
@@ -88,3 +90,9 @@ conda run -n pytorch env PYTHONPATH=src python -m zonepick split \
 2. 在统一输入与公平评价下扩充传统算法基线，并预留神经网络插件接口。
 3. ~~接入网页场景交互、音频试听和结果可视化。~~（v0.1-B 已实现最小版本）
 4. 用参数化划分与多类型噪声场景集做可复现的对照实验和消融分析。
+
+## 四区 Benchmark 基础
+
+B01 提供暂定车厢几何、FL/FR/RL/RR 标签、五种阵列和 1–5 人场景构建接口。运行 `PYTHONPATH=src python -m zonepick geometry` 查看统一配置，或访问本地网页服务的 `/api/geometry/car`。运行 `PYTHONPATH=src python -m zonepick datasets` 抽查本地数据。
+
+`main.py` 默认保留独立运行目录，`--keep` 仍可使用。`--temporary` 在退出时只清理本次创建的临时目录。正式数据生成、训练和批量评测遵循 [路线图](docs/PRD.md)。

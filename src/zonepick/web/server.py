@@ -323,6 +323,10 @@ def build_handler(output_root, datasets=None):
                     self._send(200, (STATIC_ROOT / name).read_bytes(),
                                "text/html; charset=utf-8")
                     return
+                if path == "/api/geometry/car":
+                    from zonepick.simulation.car_geometry import load_car_geometry
+                    self._send_json(200, load_car_geometry().to_dict())
+                    return
                 if path == "/api/scenarios":
                     self._send_json(200, [
                         scenario_summary(name, load_scenario(name), resolve_datasets())

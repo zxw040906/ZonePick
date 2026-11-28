@@ -1,6 +1,28 @@
 # ZonePick 开发环境
 
-## 已验证的本地环境
+## Remote-SSH 服务器（2026-11-28）
+
+| 项目 | 实测 |
+| --- | --- |
+| 操作系统 / Git | Ubuntu 20.04.6 LTS, Git 2.25.1 |
+| Conda 环境 / Python | `zxw`, CPython 3.10.22，解释器位于该环境的 `bin/python` |
+| 数值与音频 | NumPy 2.2.6, SciPy 1.15.3, SoundFile 0.14.0, h5py 3.16.0 |
+| PyTorch / torchaudio | 2.11.0+cu128 / 2.11.0+cu128 |
+| CUDA / GPU | PyTorch CUDA 12.8，检测可用，RTX 3090 × 2，每张 24576 MiB，驱动 595.104.02。查询时利用率为 0%。 |
+| 科研可选依赖 | PyRoomAcoustics 0.10.1, TensorBoard 2.21.0, PESQ 0.0.4, pystoi 0.4.1，均可导入。 |
+| 磁盘 | 数据解压前约 2.8 TiB 可用，解压及清理后可用 2,922,442,387,456 字节（约 2.66 TiB）。 |
+
+`zxw` 初始缺少 pytest。本轮将 pytest 8.4.2 放入 Git 忽略的项目目录 `data/cache/pytest-runtime`。PDF 读取器 pypdf 7.2.0 同样放在项目缓存。测试及音频验证用 CPU，保留 Conda 环境及驱动版本。
+
+```bash
+conda activate zxw
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+  PYTHONPATH=src:data/cache/pytest-runtime python -m pytest -q
+```
+
+pytest 已在项目解释器所在环境时，可只设 `PYTHONPATH=src`。本地工具缓存缺失时可用 `python -m pip install --target data/cache/pytest-runtime "pytest>=8,<9"`。依赖声明见 [pyproject.toml](../pyproject.toml)。
+
+## 历史环境（2026-11-22，WSL2）
 
 2026-11-22 在本地 WSL2 复核。当前检查终端激活的是 Conda `base`，默认 `python` 为 3.13.9。以下项目解释器、软件包及 PyTorch 检测结果均通过 `conda run -n pytorch` 获取。GPU 驱动信息来自 WSL2 内的 `nvidia-smi`。
 

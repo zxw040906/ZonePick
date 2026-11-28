@@ -252,3 +252,12 @@ __marimo__/
 *.ckpt
 *.safetensors
 *.onnx
+
+# Dataset archives and generated numerical artifacts
+*.tar.gz
+*.tgz
+*.npy
+*.npz
+events.out.tfevents.*
+id_rsa
+id_ed25519

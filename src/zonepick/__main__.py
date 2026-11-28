@@ -4,7 +4,7 @@ import argparse
 import json
 
 from zonepick.application import run
-from zonepick.application.datasets import dataset_paths, inspect_datasets, read_mapping
+from zonepick.application.datasets import dataset_entries, dataset_paths, inspect_datasets, read_mapping
 
 
 def main():
@@ -34,22 +34,28 @@ def main():
     split_cmd.add_argument("--test-ratio", type=float, default=0.15)
     split_cmd.add_argument("--seed", type=int, default=42)
     split_cmd.add_argument("--strategy", default="group", choices=["group", "file"])
+    split_cmd.add_argument("--corpus", choices=["librispeech", "aishell3"], default="librispeech")
+    split_cmd.add_argument("--official", action="store_true", help="使用 LibriSpeech 官方 clean 划分")
+    commands.add_parser("geometry", help="导出暂定四区车厢和阵列几何")
     args = parser.parse_args()
     try:
         if args.command == "datasets":
-            report = inspect_datasets(dataset_paths(args.datasets))
+            report = inspect_datasets(dataset_entries(args.datasets))
+        elif args.command == "geometry":
+            from zonepick.simulation.car_geometry import load_car_geometry
+            report = load_car_geometry().to_dict()
         elif args.command == "serve":
             from zonepick.web import serve
             serve(args.host, args.port, args.output_root)
             return
         elif args.command == "compare":
             from zonepick.workbench.compare import compare
-            from zonepick.workbench.noise import NoiseConfig
+            from zonepick.workbench.noise import noise_config_from_hint
             config = read_mapping(args.config)
             paths = {} if config["backend"] == "recording" else dataset_paths(args.datasets)
-            noise_config = NoiseConfig(enabled=args.noise)
+            noise_config = noise_config_from_hint(config.get("noise_hint"), override_enabled=args.noise)
             if args.noise_config:
-                noise_config = NoiseConfig(**read_mapping(args.noise_config))
+                noise_config = noise_config_from_hint(read_mapping(args.noise_config), True if args.noise else None)
             directory, summary = compare(
                 config, paths, args.algorithms,
                 output_root=args.output_root or "runs/compare",
@@ -57,15 +63,20 @@ def main():
             )
             report = {"compare_directory": str(directory), "summary": summary}
         elif args.command == "split":
-            from zonepick.workbench.splits import SplitConfig, build_librispeech_split
+            from zonepick.workbench.splits import SplitConfig, build_aishell3_split, build_librispeech_split
             config = SplitConfig(
                 train_ratio=args.train_ratio, val_ratio=args.val_ratio,
                 test_ratio=args.test_ratio, seed=args.seed, strategy=args.strategy,
             )
-            manifest = build_librispeech_split(args.root, config)
+            if args.corpus == "aishell3":
+                if args.official:
+                    raise ValueError("AISHELL-3 requires a speaker-disjoint custom split")
+                manifest = build_aishell3_split(args.root, config)
+            else:
+                manifest = build_librispeech_split(args.root, config, official=args.official)
             path = manifest.write(args.output)
             report = {
-                "manifest": str(path),
+                "manifest": str(path), "content_hash": manifest.content_hash,
                 "counts": {name: len(manifest.paths_for(name)) for name in ("train", "val", "test")},
             }
         else:

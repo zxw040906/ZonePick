@@ -308,6 +308,14 @@ class WebTests(unittest.TestCase):
         self.assertEqual(len(detail["geometry"]["sources"]), 2)
         self.assertEqual(detail["region"]["radius"], 0.6)
 
+    def test_public_car_geometry_uses_the_shared_configuration(self):
+        from zonepick.simulation.car_geometry import load_car_geometry
+
+        port = self.start_server(build_handler(self.root, datasets={}), self.root)
+        status, payload = self.request(port, "/api/geometry/car")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, json.loads(json.dumps(load_car_geometry().to_dict())))
+
     def test_compare_routes_list_detail_and_audio(self):
         run_id = "20260101T000000-abcdefabcdef"
         directory = self.root / "compare" / run_id  # main.py 实际写入 runs/compare/<id>/

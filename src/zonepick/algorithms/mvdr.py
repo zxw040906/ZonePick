@@ -1,24 +1,4 @@
-"""Souden 2010 统计型 MVDR：仅用观测统计量与用户区域导向的波束形成器。
-
-论文：M. Souden, J. Benesty, S. Affes, "On Optimal Frequency-Domain
-Multichannel Linear Filtering for Noise Reduction," IEEE Transactions on
-Audio, Speech, and Language Processing, 18(2):260-276, 2010.
-DOI: 10.1109/TASL.2009.2025790
-
-核心公式（MVDR，约束 w^H d = 1）::
-
-    w(f) = Phi_vv^{-1}(f) d(f) / ( d^H(f) Phi_vv^{-1}(f) d(f) )
-
-实现要点（与平台公平性白名单一致）：
-1. d(f) 只由 AlgorithmInput 里的区域圆心 + steering_height（用户公开先验）
-   和公开阵列几何推出，绝不使用真实声源位置；
-2. Phi_vv(f) 只从 mixture 估计：默认全帧样本协方差，可选低能量帧
-   （speech-absence）估计并加对角加载，保证可逆且数值稳定；
-3. 不接触目标/干扰/噪声真值，不依赖 SNR、种子或干净语音。
-
-与 DAS 的区别：DAS 用固定 1/M 权重，MVDR 用观测协方差自适应陷零，
-理论上对方向性干扰抑制更强，但对导向误差与协方差估计误差更敏感。
-"""
+"""几何导向矢量 MVDR，协方差从观测估计。"""
 
 import numpy as np
 
@@ -29,7 +9,7 @@ from zonepick.audio import analysis, synthesis
 
 @register("mvdr", kind="classical")
 class MvdrAlgorithm(Algorithm):
-    """Souden 2010 统计型 MVDR 插件。"""
+    """几何导向矢量 MVDR。"""
 
     def load(self, **params):
         self.n_fft = params.get("n_fft", 512)
@@ -49,6 +29,10 @@ class MvdrAlgorithm(Algorithm):
         if not 0.0 < self.noise_frame_quantile < 1.0:
             raise ValueError("noise_frame_quantile 须在 (0,1) 内")
         return self
+
+    def parameters(self):
+        return {key: getattr(self, key) for key in ("n_fft", "sound_speed", "diagonal_load",
+                                                   "cov_estimate", "noise_frame_quantile")}
 
     def _noise_covariance(self, spectrum, frames):
         """从观测 STFT [M,F,T] 估计逐频协方差 [F,M,M]。
@@ -72,13 +56,13 @@ class MvdrAlgorithm(Algorithm):
         return covariance
 
     def enhance(self, inp: AlgorithmInput) -> np.ndarray:
-        mixture = np.asarray(inp.mixture)
+        mixture = np.asarray(inp.mixture, dtype=float)
         if mixture.ndim != 2 or not mixture.size or not np.isfinite(mixture).all():
             raise ValueError("混合音频须为非空有限 [M,N]")
         mics = np.asarray(inp.microphones, dtype=float)
         if mics.ndim != 2 or mics.shape[1] != 3 or mics.shape[0] != mixture.shape[0]:
             raise ValueError("麦克风坐标须与音频通道逐路对应 [M,3]")
-        if not 0 <= inp.reference_channel < mixture.shape[0]:
+        if type(inp.reference_channel) is not int or not 0 <= inp.reference_channel < mixture.shape[0]:
             raise ValueError("参考麦克风索引越界")
 
         # 导向矢量只来自用户区域（公开先验）+ 阵列几何，不使用真实声源位置。
@@ -92,9 +76,16 @@ class MvdrAlgorithm(Algorithm):
         # 逐频求解 w = Phi^{-1} d / (d^H Phi^{-1} d)，等价 w^H x。
         weights = np.empty_like(steering)
         for f in range(len(frequencies)):
-            inv_phi_d = np.linalg.solve(covariance[f], steering[f])
-            denom = np.vdot(steering[f], inv_phi_d)  # d^H Phi^{-1} d，正实数
-            weights[f] = inv_phi_d / denom
+            matrix = covariance[f]
+            scale = np.max(np.abs(matrix))
+            if scale == 0:
+                weights[f] = steering[f] / len(mics)
+                continue
+            matrix = matrix / scale
+            if np.linalg.cond(matrix) > 1e10:
+                matrix += 1e-8 * np.eye(len(mics))
+            inv_phi_d = np.linalg.solve(matrix, steering[f])
+            weights[f] = inv_phi_d / np.vdot(steering[f], inv_phi_d)
         # 实值信号的 Nyquist 点只支持实权重。
         weights[-1] = weights[-1].real
 

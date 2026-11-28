@@ -1,9 +1,30 @@
 {
-  "librispeech": {"path": "data/raw/LibriSpeech/LibriSpeech", "enabled": true},
-  "aishell3": {"path": "data/raw/AISHELL3", "enabled": true},
-  "dns_noise": {"path": "data/raw/DNS_noise/noise_17class", "enabled": true},
-  "dns_rirs": {"path": "data/raw/DNS_RIRS/rirs_8ch", "enabled": true},
-  "dechorate": {"path": "data/raw/dEchorate/rir", "enabled": false},
-  "mcvampire": {"path": "data/raw/McVAMPIRE/V1.0", "enabled": false},
-  "cavemove": {"path": "data/raw/CAVEMOVE", "enabled": false}
+  "librispeech": {
+    "path": "data/raw/LibriSpeech/LibriSpeech",
+    "enabled": true
+  },
+  "aishell3": {
+    "path": "data/raw/AISHELL3",
+    "enabled": true
+  },
+  "dns_noise": {
+    "path": "data/raw/DNS_noise/noise_17class",
+    "enabled": true
+  },
+  "dns_rirs": {
+    "path": "data/raw/DNS_RIRS/rirs_8ch",
+    "enabled": true
+  },
+  "dechorate": {
+    "path": "data/raw/dEchorate/rir",
+    "enabled": false
+  },
+  "mcvampire": {
+    "path": "data/raw/McVAMPIRE",
+    "enabled": true
+  },
+  "cavemove": {
+    "path": "data/raw/CAVEMOVE/cavemove_dataset",
+    "enabled": true
+  }
 }

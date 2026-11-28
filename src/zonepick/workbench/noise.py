@@ -1,17 +1,6 @@
-"""真实感空间噪声注入（多类型、可复现、与语音源无关）。
+"""按录音组织噪声，并在参考通道上标定叠加后的 SNR。"""
 
-噪声来源：
-- UrbanSound8K：10 类环境音（街道、咖啡厅、车流、儿童、狗吠、空调、引擎……）；
-- McVAMPIRE driving_noise：0/30/.../150 kph 车内行驶噪声，14 通道。
-
-支持两种注入方式：
-- diffuse：多个随机方向经自由场 RIR 卷积后叠加，形成空间扩散噪声；
-- captured：McVAMPIRE 多通道实测噪声直接按参考通道对齐叠加。
-
-噪声真值单独保存为分量，可从 SI-SDR 参考口径中排除（参考=独立混响目标）。
-"""
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import re
 
@@ -20,9 +9,6 @@ from scipy.signal import resample_poly
 
 from zonepick.audio import read_audio
 from zonepick.simulation import convolve, free_field_rir
-
-DEFAULT_URBAN_ROOT = Path(__file__).resolve().parents[3] / "data/raw/DNS_noise/noise_17class"  # 本机 DNS 17 类环境噪声（旧 UrbanSound8K 路径已失效）
-DEFAULT_DRIVING_ROOT = Path(__file__).resolve().parents[3] / "data/raw/driving_noise"  # 旧 McVAMPIRE 行驶噪声路径已失效；新版数据集走 DNS 噪声
 
 # UrbanSound8K 官方 10 类；类目来自 metadata 的 classID。
 URBAN_CLASSES = {
@@ -36,10 +22,12 @@ URBAN_CLASSES = {
 class NoiseConfig:
     """噪声配置；所有维度均可通过参数调节。"""
 
-    kinds: list = field(default_factory=lambda: ["urban", "driving"])
+    kinds: list = field(default_factory=lambda: ["dns_noise", "driving"])
     urban_classes: list = field(default_factory=lambda: sorted(URBAN_CLASSES))
-    urban_root: Path = DEFAULT_URBAN_ROOT
-    driving_root: Path = DEFAULT_DRIVING_ROOT
+    urban_root: Path = None
+    dns_root: Path = None
+    driving_root: Path = None
+    captured_channels: tuple = ()
     driving_speeds: list = field(default_factory=lambda: [0, 40, 80, 120])
     snr_db: tuple = (5.0, 20.0)          # 相对目标能量的信噪比范围（均匀分布）
     max_sources: int = 3                 # 每次注入最多叠加几个噪声源
@@ -56,7 +44,7 @@ def noise_config_from_hint(hint, override_enabled=None):
     hint = hint or {}
     allowed = {
         "kinds", "urban_classes", "urban_root", "driving_root", "driving_speeds",
-        "snr_db", "max_sources", "spatial", "seed", "enabled",
+        "snr_db", "max_sources", "spatial", "seed", "enabled", "dns_root", "captured_channels",
     }
     values = {key: value for key, value in hint.items() if key in allowed}
     if "urban_root" in values:
@@ -83,7 +71,7 @@ def list_noise_files(config):
     groups = {}
     if "urban" in config.kinds:
         files = []
-        for path in sorted(Path(config.urban_root).rglob("*.wav")):
+        for path in sorted(Path(config.urban_root or "data/raw/UrbanSound8K").rglob("*.wav")):
             match = re.match(r"\d+-(\d+)-", path.name)
             if match and int(match.group(1)) in [_class_id(c) for c in config.urban_classes]:
                 files.append(path)
@@ -92,12 +80,16 @@ def list_noise_files(config):
         groups["urban"] = files
     if "driving" in config.kinds:
         files = [
-            root for root in sorted(Path(config.driving_root).glob("*.wav"))
+            root for root in sorted(Path(config.driving_root or "data/raw/McVAMPIRE/driving_noise").glob("*.wav"))
             if _speed(root) in config.driving_speeds
         ]
         if not files:
             raise ValueError(f"未找到行驶噪声: {config.driving_root}")
         groups["driving"] = files
+    if "dns_noise" in config.kinds:
+        groups["dns_noise"] = list_local_recordings(config.dns_root or "data/raw/DNS_noise/noise_17class")
+    if set(config.kinds) != set(groups):
+        raise ValueError("Unknown noise source")
     return groups
 
 
@@ -106,69 +98,151 @@ def _speed(path):
     return int(match.group(1)) if match else None
 
 
-def _resample(waveform, src_rate, dst_rate):
-    if src_rate == dst_rate:
-        return waveform
+@dataclass(frozen=True)
+class LocalNoiseRecording:
+    noise_recording_id: str
+    paths: tuple
+    channel_ids: tuple = tuple(f"ch{i:02d}" for i in range(1, 17))
+
+
+def list_local_recordings(root):
+    root = Path(root)
+    channels = {}
+    for path in sorted(root.rglob("ch*.wav")):
+        if re.fullmatch(r"ch(?:0[1-9]|1[0-6])", path.stem):
+            channels.setdefault(path.parent, {})[path.stem] = path
+    recordings = []
+    for directory, paths in channels.items():
+        if len(paths) != 16:
+            raise ValueError(f"Incomplete 16-channel noise recording: {directory}")
+        recordings.append(LocalNoiseRecording(
+            f"dns_noise:{directory.relative_to(root).as_posix()}",
+            tuple(paths[key] for key in sorted(paths)),
+        ))
+    if not recordings:
+        raise ValueError(f"No local 16-channel recordings: {root}")
+    return recordings
+
+
+def configure_noise(config, datasets, backend, channels):
+    """由所选数据集解析目录，实测车厢复用同一测量通道编号。"""
+    driving_root = datasets.get("mcvampire")
+    measured_directory = Path(driving_root) / "driving_noise" if driving_root else None
+    driving = config.driving_root or measured_directory
+    captured = config.captured_channels
+    known_mapping = (backend == "mcvampire" and config.kinds == ["driving"]
+                     and measured_directory is not None and Path(driving).resolve() == measured_directory.resolve())
+    if config.spatial == "captured" and known_mapping:
+        if captured and tuple(captured) != tuple(channels):
+            raise ValueError("Captured mapping does not match McVAMPIRE physical channels")
+        captured = tuple(channels)
+    elif config.spatial == "captured" and len(config.kinds) != 1:
+        raise ValueError("Captured noise requires one explicitly mapped dataset")
+    roots = {"dns_noise": config.dns_root or datasets.get("dns_noise"),
+             "urban": config.urban_root or datasets.get("urbansound8k"), "driving": driving}
+    for kind in config.kinds:
+        if not roots.get(kind):
+            raise ValueError(f"Configure an enabled dataset or an explicit noise directory for {kind}")
+    return replace(
+        config,
+        dns_root=roots["dns_noise"],
+        urban_root=roots["urban"],
+        driving_root=driving,
+        captured_channels=captured,
+    )
+
+
+def _noise_at_mics(resource, kind, rate, length, microphones, config, rng):
+    if isinstance(resource, LocalNoiseRecording):
+        tracks = [read_audio(path) for path in resource.paths]
+        original_rate = tracks[0][1]
+        if any(track.shape != tracks[0][0].shape or track.shape[0] != 1
+               or source_rate != original_rate for track, source_rate in tracks):
+            raise ValueError("Local recording channels must have equal length, rate and one channel per file")
+        waveform = np.concatenate([track for track, _ in tracks])
+        recording_id = resource.noise_recording_id
+        channels = resource.channel_ids
+    else:
+        waveform, original_rate = read_audio(resource)
+        recording_id = f"{kind}:{resource.stem}"
+        channels = tuple(range(len(waveform)))
+    if config.spatial == "captured":
+        indices = tuple(config.captured_channels)
+        if (len(indices) != len(microphones) or any(type(i) is not int for i in indices)
+                or len(set(indices)) != len(indices) or any(not 0 <= i < len(channels) for i in indices)):
+            raise ValueError("Captured noise requires an explicit valid channel mapping")
+    else:
+        indices = (0,)
     from math import gcd
-    divisor = gcd(src_rate, dst_rate)
-    return resample_poly(waveform, dst_rate // divisor, src_rate // divisor)
-
-
-def _noise_at_mics(path, rate, length, microphones, spatial, rng, sound_speed=343.0):
-    """把一个噪声文件渲染成 [M, length] 的多通道噪声。"""
-    waveform, original_rate = read_audio(path)
-    if waveform.shape[0] != 1:
-        waveform = waveform[:1]  # driving_noise 为 14 通道，取第一路作空间扩散源
-    source = _resample(waveform[0], original_rate, rate)
-    if len(source) < length:
-        source = np.tile(source, int(np.ceil(length / len(source))))
-    start = int(rng.integers(0, max(1, len(source) - length)))
-    segment = source[start:start + length]
-    if len(segment) < length:
-        segment = np.pad(segment, (0, length - len(segment)))
-    if spatial == "captured" and waveform.shape[0] >= microphones.shape[0]:
-        captured = np.stack([_resample(waveform[m], original_rate, rate)[start:start + length]
-                             for m in range(microphones.shape[0])])
-        return captured
-    # 随机方向 + 自由场 RIR，形成空间扩散噪声（不以声源真值为方向）。
+    divisor = gcd(original_rate, rate)
+    samples = resample_poly(waveform[list(indices)], rate // divisor, original_rate // divisor, axis=-1)
+    if not samples.shape[-1]:
+        raise ValueError("Empty noise recording")
+    repeats = max(1, int(np.ceil(length / samples.shape[-1])))
+    repeated = np.tile(samples, (1, repeats))
+    start = int(rng.integers(0, repeated.shape[-1] - length + 1))
+    segment = repeated[:, start:start + length]
+    origin = {"dns_noise": "unverified_local_collection", "driving": "McVAMPIRE",
+              "urban": "UrbanSound8K"}[kind]
+    metadata = {"noise_recording_id": recording_id, "origin": origin,
+                "channel_ids": [channels[index] for index in indices],
+                "start_resampled_sample": start, "sample_rate": rate, "source_sample_rate": original_rate,
+                "source_frames": waveform.shape[-1], "repeats": repeats,
+                "rendering": "measured_channels" if config.spatial == "captured" else "simulated_free_field"}
+    if config.spatial == "captured":
+        return segment, metadata
     angle = rng.uniform(0, 2 * np.pi)
     distance = rng.uniform(1.5, 4.0)
     point = np.array([
         microphones[:, 0].mean() + distance * np.cos(angle),
         microphones[:, 1].mean() + distance * np.sin(angle),
-        float(rng.uniform(0.5, 2.0)),
+        rng.uniform(0.5, 2.0),
     ])
-    rir = free_field_rir(point, microphones, rate, sound_speed)
-    return convolve(segment, rir)
+    metadata["render_position"] = point.tolist()
+    return convolve(segment[0], free_field_rir(point, microphones, rate, 343.0)), metadata
 
 
-def inject_noise(mixture, target, rate, microphones, config):
-    """按 SNR 叠加多类型真实噪声，返回 (带噪混合, 噪声分量 [M,N])。
-
-    target 为目标在参考通道的分量，用于确定噪声能量；噪声分量单独保存，
-    使 SI-SDR 参考始终是"独立混响目标"，噪声作为干扰而非目标的一部分。
-    """
+def inject_noise(mixture, target, rate, microphones, config, *, reference_channel=0, metadata=None):
+    """将总噪声相对给定参考语音标定，保留同步多通道。"""
     if not config.enabled:
-        zeros = np.zeros_like(mixture)
-        return mixture.copy(), zeros
+        return mixture.copy(), np.zeros_like(mixture)
+    mixture, target = np.asarray(mixture), np.asarray(target, dtype=float)
+    microphones = np.asarray(microphones, dtype=float)
+    if (mixture.ndim != 2 or microphones.shape != (len(mixture), 3) or not mixture.size
+            or target.shape != (mixture.shape[1],)):
+        raise ValueError("Expected [M,T] mixture, [M,3] microphones and [T] reference")
+    if (config.spatial not in ("diffuse", "captured")
+            or type(config.max_sources) is not int or config.max_sources < 1
+            or type(reference_channel) is not int or not 0 <= reference_channel < len(mixture)):
+        raise ValueError("Invalid noise configuration")
+    low, high = config.snr_db
+    if not np.isfinite([low, high]).all() or low > high:
+        raise ValueError("Invalid noise SNR range")
     groups = list_noise_files(config)
+    if not groups:
+        raise ValueError("No noise sources configured")
     rng = np.random.default_rng(config.seed)
-    length = mixture.shape[1]
-    noise = np.zeros_like(mixture)
     target_power = np.dot(target, target)
-    if target_power <= 0:
-        raise ValueError("目标能量为零，无法确定噪声 SNR")
-    sources = int(rng.integers(1, config.max_sources + 1))
+    if not np.isfinite(target_power) or target_power <= 0:
+        raise ValueError("Reference speech must have positive finite energy")
+    noise = np.zeros_like(mixture, dtype=float)
+    records = []
     kinds = list(groups)
-    for _ in range(sources):
-        kind = kinds[int(rng.integers(0, len(kinds)))]
-        path = groups[kind][int(rng.integers(0, len(groups[kind])))]
-        rendered = _noise_at_mics(path, rate, length, microphones, config.spatial, rng)
-        # 归一化：按目标参考通道能量与指定 SNR 决定该源增益。
-        desired_power = target_power / (len(groups) * 10 ** (float(
-            config.snr_db[0] + rng.uniform(0, config.snr_db[1] - config.snr_db[0])
-        ) / 10))
-        current = np.dot(rendered[0], rendered[0])
-        if current > 0:
-            noise += rendered * np.sqrt(desired_power / current)
+    for _ in range(rng.integers(1, config.max_sources + 1)):
+        kind = rng.choice(kinds)
+        resources = groups[kind]
+        resource = resources[rng.integers(len(resources))]
+        rendered, record = _noise_at_mics(resource, kind, rate, mixture.shape[1], microphones, config, rng)
+        noise += rendered
+        records.append(record)
+    snr = float(rng.uniform(low, high))
+    power = np.dot(noise[reference_channel], noise[reference_channel])
+    if not np.isfinite(power) or power <= 0:
+        raise ValueError("Rendered noise must have positive finite reference energy")
+    gain = float(np.sqrt(target_power / power * 10 ** (-snr / 10)))
+    noise *= gain
+    if metadata is not None:
+        metadata.update(snr_db=snr, reference_channel=reference_channel,
+                        reference_definition="provided_speech_at_reference_channel",
+                        recordings=[dict(record, gain=gain) for record in records], seed=config.seed)
     return mixture + noise, noise

@@ -1,54 +1,50 @@
 # ZonePick 数据集
 
-## 存储与本地配置
+从仓库根目录运行 `PYTHONPATH=src python -m zonepick datasets`。CLI 优先读 `--datasets` 指定文件，其次读 `configs/local/datasets.yaml`，最后读 [示例配置](../configs/datasets.example.yaml)。路径支持环境变量和 `~`。配置使用 YAML 兼容的 JSON 语法。CLI 分别报告路径是否存在、资源是否启用、已声明的解压与完整性状态、音频抽读、项目适配及目标阵列配准。归档级验证以此文档与本地验证记录为准。
 
-从 ZonePick 项目根目录运行 CLI。数据配置中的相对路径也以该目录为基准，支持环境变量和 `~`。优先读取 `--datasets` 指定的文件，其次读取 `configs/local/datasets.yaml`。两者均未指定时，使用仓库内示例，且已有的 `AUDIO_LEARNING_DATA` 可以覆盖旧项目数据根目录。
+## 资源与适配状态
 
-```bash
-mkdir -p configs/local
-cp -n configs/datasets.example.yaml configs/local/datasets.yaml
-conda run -n pytorch env PYTHONPATH=src python -m zonepick datasets
-```
-
-配置使用 YAML 兼容的 JSON 写法，可直接由 Python 标准库解析。每项配置使用 `path` 指定目录，并用 `enabled` 启用或禁用。检查命令抽查可读取的文件及其格式，CAVEMOVE 通过检查仅表示可读 WAV，尚无场景适配器。默认目录约定如下。
-
-| 数据源 | 相对 ZonePick 的位置 | ZonePick 用途 |
+| 资源 | 本地根目录 | 音频和适配 |
 | --- | --- | --- |
-| LibriSpeech | `data/raw/LibriSpeech/LibriSpeech` | 英文干语音（train-clean-100/dev/test-clean，本机已下载） |
-| dEchorate | `data/raw/dEchorate/rir`（未下载，enabled=false） | 固定测点的房间 RIR 闭环 |
-| In-Car McVAMPIRE V1.0 | `data/raw/McVAMPIRE/V1.0`（未下载，enabled=false） | 固定口部位置与朝向的车内 RIR 闭环 |
-| CAVEMOVE v4 | `data/raw/CAVEMOVE`（未下载，enabled=false） | 后续车内 RIR 与驾驶噪声场景 |
+| LibriSpeech | `data/raw/LibriSpeech/LibriSpeech` | 已展开。train-clean-100、dev-clean、test-clean 分别有 28,539、2,703、2,620 条 16 kHz 单声道 FLAC。331 名说话人。支持官方 clean 子集和自定义说话人互斥划分。 |
+| AISHELL-3 | `data/raw/AISHELL3` | 已展开。原始 train/test 分别有 63,262/24,773 条 WAV，抽读格式为 44.1 kHz 单声道。218 名说话人，其中 170 名跨原始目录。正式划分按身份归并。 |
+| 本地 DNS 噪声 | `data/raw/DNS_noise/noise_17class` | 保留公共软链接，272 个 16 kHz 单声道文件来自 17 组录音，每组 ch01–ch16；原始来源及版本待核实。仿真渲染标为自由场仿真。 |
+| 本地 DNS RIR | `data/raw/DNS_RIRS/rirs_8ch` | 保留公共软链接，36 个 16 kHz 八通道 WAV；来源、通道对应和版本待核实。可读，目标阵列未配准。 |
+| In-Car McVAMPIRE V1.0 | `data/raw/McVAMPIRE` | 已解压并验证归档，111 个文件。94 个 RIR 和 14 个行驶噪声 WAV 均为 24 kHz、14 通道。口部 RIR、驾驶噪声已接入测量布置，目标阵列未配准。 |
+| CAVEMOVE v4 | `data/raw/CAVEMOVE/cavemove_dataset` | 已解压并逐成员验证，1438 个文件，1430 个 WAV 均为 16 kHz 八通道。完成音频探测与元数据检查，场景适配和目标阵列配准待做。 |
+| dEchorate | `data/raw/dEchorate/rir` | 当前服务器缺失，默认禁用。已有固定测点 SOFA 适配器。原始五通道 48 kHz RIR 降至 16 kHz。 |
 
-本地覆盖配置、数据和生成音频只在工作区外部或 Git 忽略目录存放。数据许可以记录中的署名及使用条件为准。即使数据可公开下载，本仓库也只提交配置示例、链接和自编写的适配代码。
+LibriSpeech 采用 CC BY 4.0，AISHELL-3 采用 Apache 2.0。项目只使用干源及身份分组，正式发布遵循各资源许可。dEchorate 本地 SOFA 镜像的版本与再分发条款仍待复核。 [LibriSpeech 官方下载](https://www.openslr.org/12) · [LibriSpeech 论文](https://doi.org/10.1109/ICASSP.2015.7178964) · [AISHELL-3 官方下载](https://www.openslr.org/93) · [dEchorate SOFA 镜像](https://sofacoustics.org/data/database/dechorate/) · [dEchorate HDF5](https://zenodo.org/records/6576203)
 
-## 复用旧项目数据
+### McVAMPIRE
 
-**LibriSpeech** 为 OpenSLR SLR12 的英文朗读语料，许可为 CC BY 4.0。已有 `dev-clean`（2703 个 FLAC）及 `test-clean`（2620 个 FLAC），按说话人和章节组织。已核对 5323 个文件头，均为 16 kHz 单声道。这些语音提供干源，不含阵列或空间标注。示例指定两个不同说话人的片段，直接读取已有文件。引用 Panayotov 等人的 ICASSP 2015 论文，论文 DOI 为 `10.1109/ICASSP.2015.7178964`。 [OpenSLR SLR12 官方页](https://www.openslr.org/12) [论文 DOI](https://doi.org/10.1109/ICASSP.2015.7178964)
+SciPy 读出 `mic (14,1)`、`mouth (8,1)` 和 `ls (6,1)`。麦克风 `pos` 和口部 `centerpos` 为三维点。各口部还记录 `orientations_XYZ [11,3]` 和 `orientations_AzEl [11,2]`。88 个口部 RIR 长 2040 点，另有 6 个车载扬声器 RIR。历史检查发现说明中一处通道数和实物不同，以 WAV/MAT 的 14 路为准。口部适配器沿朝向从中心前移约 7 cm 定义近似声学参考点，并同步选择 RIR 和噪声的物理通道。真实阵列数据保留原几何。 [官方归档及引用](https://zenodo.org/records/12806684)
 
-**dEchorate** 已有 SOFA 镜像的 12 个固定测量文件，覆盖 `room000000`、两个声源与六个阵列，另有 `dEchorate_annotations.h5`。原始 RIR 为 48 kHz、五通道，带测量声源和接收器三维坐标。适配器将 RIR 降至 16 kHz，按配置同时选择音频通道与麦克风坐标。区域可变，测点保持原值。当前子集足以验证固定测点的区域拾音，未重复下载。引用 Di Carlo 等人的 dEchorate 论文。关联 Zenodo HDF5 2.0 记录 DOI 为 `10.5281/zenodo.6576203`，标注 CC BY 4.0。本地 SOFA 文件的单独版本与再分发条款仍待核实。 [SOFA 数据镜像](https://sofacoustics.org/data/database/dechorate/) [数据与论文引用](https://zenodo.org/records/6576203)
+### CAVEMOVE
 
-## In-Car McVAMPIRE V1.0
+数据覆盖 Alfa Romeo 146 Ti、Honda CR-V、Smart forfour、Volkswagen Golf。WAV 含 176 个 RIR、22 个车载音响 IR、402 个受控噪声、66 个通风样本、764 个非受控条件样本。每个 WAV 都读取了首段样本，1254 个是 24 位 PCM，176 个是浮点。
 
-Müller 与 Wolff（Cerence，2024），DOI `10.5281/zenodo.12806684`，Zenodo 标注 CC BY 4.0。官方 `In-Car_McVAMPIRE_V1.0.zip` 为 256,172,199 字节，存于 `../shared-datasets/McVAMPIRE/`。已核对 MD5 `187b2d91cb8a3b0ea0ae397a3de8afe0`，检查 ZIP 路径和文件类型后解压到 `V1.0/`，共 432,183,916 字节。 [官方数据与引用](https://zenodo.org/records/12806684)
+保留的 36 页 `dataset_documentation.pdf` 为 14,945,213 字节，MD5 `a76e68b81c8ea7c042b89c111f157040`。文档给出分布式布置（前六后两）、半径 5 cm 的八麦圆阵、通道编号及各车型测点示意。Alfa Romeo 此归档只有分布式布置。车型 `info.json` 的字段是 make、model、version、year。`info.mat` 读出 MATLAB MCOS 车型对象。当前检查未找到足以完成配准的统一三维麦克风和声源坐标。 [CAVEMOVE 归档与文档](https://zenodo.org/records/17404917) · [发布方代码](https://github.com/SPL-FORTH-ICS/CAVEMOVE)
 
-- `ir/` 有 94 个 WAV，其中 88 个口部 RIR（8 个位置，每个 11 种朝向）和 6 个扬声器 RIR。口部 RIR 长 2040 点。`driving_noise/` 有 14 个行驶噪声 WAV。全部 108 个 WAV 的头信息均为 24 kHz、14 通道、PCM 24 位。
-- `geometry.mat` 可用 SciPy 读取，包含 14 支麦克风、8 个口部中心及其朝向、6 个车载扬声器。包内还附有布置图和说明 PDF。按 88 个口部 RIR 的早期相对峰值与几何预测匹配，观测通道顺序与 MAT 麦克风顺序一致。包内说明有一处写作 32 支，适配器以实际 WAV 和 MAT 的 14 支为准。
-- 首版只读取指定座位和朝向的口部 RIR，按官方说明用中心沿朝向前移约 7 cm 得到近似声学参考点，随后将 RIR 重采样至 16 kHz。此坐标用于仿真评价标签。常规 DAS 仍由配置中的区域圆心和高度指向。车载扬声器和驾驶噪声已清点，尚未接入混合流程。
+## 归档校验及本地处置
 
-## CAVEMOVE v4
+ZIP 经全包 CRC、解压大小及逐字节对比。TAR.GZ/TGZ 经完整流读取、gzip 尾部校验和逐文件字节或 SHA-256 对比。只有项目内拥有独立目录项的归档可以按授权删除。文件数包括归档内的元数据，多个 LibriSpeech 分卷有共享说明文件。明细与删除规模见 [AUDIT.md](AUDIT.md)。
 
-FORTH Institute of Computer Science、Stefanakis、Kalaitzakis、Symiakakis 与 Pavlidi，DOI `10.5281/zenodo.17404917`，Zenodo 标注 CC BY 4.0。已从 Zenodo 下载 `dataset_documentation.pdf`（14,945,213 字节），校验 MD5 `a76e68b81c8ea7c042b89c111f157040`。官方说明记录 16 kHz、八通道 WAV，含静态 RIR 及驾驶、环境与通风等噪声，麦克风布置随车型和配置变化。 [官方数据与引用](https://zenodo.org/records/17404917)
+<!-- archive-verification -->
 
-完整包 `cavemove_dataset.zip` 为 7,613,945,771 字节，官方 MD5 为 `dec31a69f02a304a2b55b6b4db665c5e`。从官方服务器读得 ZIP 目录共 1483 项，展开 8,695,241,895 字节。下载前可用空间约 982 GB，压缩包及展开内容合计约 16.31 GB，满足操作完成后至少剩余 10 GB 的条件。
+| 归档 | 文件字节 | MD5 | 解压根目录 | 实际文件数 | 校验及处置 |
+| --- | ---: | --- | --- | ---: | --- |
+| [data_aishell3.tgz](https://www.openslr.org/93) | 19,057,141,777 | `6833e9dcb47709d4e153e2f669e5ddc8` | `data/raw/AISHELL3` | 88,042 | 验证通过，归档已删除 |
+| [train-clean-100.tar.gz](https://www.openslr.org/12) | 6,387,309,499 | `2a93770f6d5c6c964bc36631d331a522` | `data/raw/LibriSpeech/LibriSpeech` | 29,129 | 验证通过，归档已删除 |
+| [dev-clean.tar.gz](https://www.openslr.org/12) | 337,926,286 | `42e2234ba48799c1f50f24a7926300a1` | `data/raw/LibriSpeech/LibriSpeech` | 2,805 | 验证通过，归档已删除 |
+| [test-clean.tar.gz](https://www.openslr.org/12) | 346,663,984 | `32fa31d27d2e1cad72775fee3f4849a9` | `data/raw/LibriSpeech/LibriSpeech` | 2,712 | 验证通过，归档已删除 |
+| [In-Car_McVAMPIRE_V1.0.zip](https://zenodo.org/records/12806684) | 256,172,199 | `187b2d91cb8a3b0ea0ae397a3de8afe0` | `data/raw/McVAMPIRE` | 111 | 验证通过，归档已删除 |
+| [cavemove_dataset.zip](https://zenodo.org/records/17404917) | 7,613,945,771 | `dec31a69f02a304a2b55b6b4db665c5e` | `data/raw/CAVEMOVE/cavemove_dataset` | 1,438 | 验证通过，归档已删除 |
 
-压缩包已下载至 `../shared-datasets/CAVEMOVE/`，MD5 与官方值一致。通过路径、条目类型、展开容量和解压 CRC 检查后发布至 `v4/cavemove_dataset/`，共享磁盘剩余约 965 GB。
+<!-- /archive-verification -->
 
-- 解压实物包含 Alfa Romeo 146、Honda CR-V、Smart forfour 和 Volkswagen Golf。各车型按 `array/` 或 `distributed/` 组织，并附 `info.json` 和 `info.mat`。所查的 JSON 记录车型信息，未提供三维阵列坐标。
-- 检查了 1430 个 WAV 的头信息，均为 16 kHz、八通道。其中 1254 个为 PCM 24 位、176 个为浮点 WAV。按目录统计有 176 个 `IRs`、22 个 `radio_IRs`、402 个 `noise`、66 个 `ventilation` 和 764 个 `uncontrolled_conditions`。已用 SoundFile 解码一个 RIR 和一个噪声样例，各读取 512 帧。
+## Benchmark 候选协议
 
+Smoke 100 场景、Pilot 1,000 场景、Small 10,000 场景、Benchmark-v1 60,000 场景。正式候选划分为 Train 50,000、Val 5,000、Test 5,000，初始候选为 16 kHz、6 秒。Pilot 验证规模、时长和分片音频编码后再冻结。覆盖中文、英文及混语，抽样复杂噪声、混响、源位和语音重叠率。
 
-现有 SoundFile 可读取标准多通道 WAV，SciPy 可执行卷积。官方 Python API 固定 NumPy 2.0.2 和 SciPy 1.14.1，其中 SciPy 1.14.1 要求 Python ≥3.10。编码实现前仍需结合车型编号、麦克风布置及文档核实通道映射和可用几何。本轮保留官方 API 链接，后续适配可优先使用现有读音频接口。 [官方 API 与依赖文件](https://github.com/SPL-FORTH-ICS/CAVEMOVE/blob/HEAD/pyhton/source/requirements.txt) [SciPy 1.14.1 发布元数据](https://pypi.org/project/scipy/1.14.1/)
-
-## 官方下载与校验
-
-从对应 Zenodo 记录的 Files 下载，先写入 `.part`，确认文件大小和 MD5 后再改为正式文件名。解压前检查 ZIP 条目路径、特殊文件类型和预计展开容量，并在共享目录内的临时目录完成解压后再发布。两份旧项目数据直接读取，另行下载仅适用于确实缺失的文件。
+先按说话人、原始录音和必要的测量/噪声会话划分资源，再生成场景。相同事件派生的五种 MIC 布局共用同一 scene_id 与 split。用 Manifest 追踪源文件、裁剪和生成版本，用 RIR 缓存标记仿真及实测来源。只有具有明确物理对应关系的实测声学素材可以作为目标阵列的实测素材。各参考音频的约定见 [EVALUATION.md](EVALUATION.md)。
